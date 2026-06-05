@@ -1,345 +1,560 @@
 import os
 import requests
-import pandas as pd
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-
-ASSETS = {
-    "eurusd": {"name": "EUR/USD", "symbol": "EUR/USD"},
-    "gbpusd": {"name": "GBP/USD", "symbol": "GBP/USD"},
-    "usdjpy": {"name": "USD/JPY", "symbol": "USD/JPY"},
-    "gold": {"name": "XAU/USD", "symbol": "XAU/USD"},
-    "btc": {"name": "BTC/USD", "symbol": "BTC/USD"},
-}
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TWELVE_DATA_KEY = os.getenv("TWELVE_DATA_KEY")
 
 subscribers = set()
-chat_settings = {}
 history = []
+expiry_settings = {}
+
+ASSETS = {
+    "EUR/USD": "EUR/USD",
+    "GBP/USD": "GBP/USD",
+    "USD/JPY": "USD/JPY",
+    "GOLD": "XAU/USD",
+    "BTC": "BTC/USD",
+}
 
 keyboard = ReplyKeyboardMarkup(
     [
-        ["📊 Сигнал", "⚙️ Статус"],
-        ["📈 EUR/USD", "📈 GBP/USD", "📈 USD/JPY"],
-        ["🥇 GOLD", "₿ BTC"],
-        ["📜 История", "📊 Статистика"],
-        ["▶️ Старт", "⏸ Стоп"],
+        ["📊 EUR/USD", "📊 GBP/USD"],
+        ["📊 USD/JPY", "🥇 GOLD"],
+        ["₿ Bitcoin", "🚀 VIP-сигнал"],
+        ["📜 История", "📈 Статистика"],
+        ["⚙️ Статус", "ℹ️ Помощь"],
+        ["⏸ Стоп"],
     ],
     resize_keyboard=True
 )
 
-def get_setting(chat_id):
-    if chat_id not in chat_settings:
-        chat_settings[chat_id] = {
-            "assets": ["eurusd", "gbpusd", "usdjpy"],
-            "expiry": 3,
-            "last_sent": {}
-        }
-    return chat_settings[chat_id]
 
-def get_prices(symbol, interval="1min", outputsize=100):
-    url = "https://api.twelvedata.com/time_series"
+def get_expiry(chat_id):
+    return expiry_settings.get(chat_id, 3)
+
+
+def ema(values, period):
+    if len(values) < period:
+        return sum(values) / len(values)
+
+    k = 2 / (period + 1)
+    result = sum(values[:period]) / period
+
+    for price in values[period:]:
+        result = price * k + result * (1 - k)
+
+    return result
+
+
+def calculate_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return 50
+
+    gains = []
+    losses = []
+
+    for i in range(1, period + 1):
+        diff = closes[-i] - closes[-i - 1]
+
+        if diff > 0:
+            gains.append(diff)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(diff))
+
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+
+    if avg_loss == 0:
+        return 100
+
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def calculate_macd(closes):
+    if len(closes) < 26:
+        return 0, 0
+
+    ema12 = ema(closes, 12)
+    ema26 = ema(closes, 26)
+
+    macd_line = ema12 - ema26
+    signal_line = macd_line * 0.8
+
+    return macd_line, signal_line
+
+
+def get_market_data(symbol, interval="1min"):
     params = {
         "symbol": symbol,
         "interval": interval,
-        "outputsize": outputsize,
-        "apikey": "demo"
+        "outputsize": 100,
+        "format": "JSON",
     }
-    data = requests.get(url, params=params, timeout=15).json()
+
+    if TWELVE_DATA_KEY:
+        params["apikey"] = TWELVE_DATA_KEY
+
+    response = requests.get(
+        "https://api.twelvedata.com/time_series",
+        params=params,
+        timeout=15
+    )
+
+    data = response.json()
 
     if "values" not in data:
-        raise Exception(f"Нет данных по {symbol}: {data}")
+        message = data.get("message") or data.get("status") or "Нет данных от API"
+        raise Exception(message)
 
-    values = list(reversed(data["values"]))
-    closes = [float(v["close"]) for v in values]
-    return pd.Series(closes)
+    closes = [float(x["close"]) for x in reversed(data["values"])]
 
-def rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = -delta.where(delta < 0, 0).rolling(period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    if len(closes) < 30:
+        raise Exception("Недостаточно свечей")
 
-def macd(series):
-    ema12 = series.ewm(span=12).mean()
-    ema26 = series.ewm(span=26).mean()
-    macd_line = ema12 - ema26
-    signal_line = macd_line.ewm(span=9).mean()
-    return macd_line.iloc[-1], signal_line.iloc[-1]
+    return closes
+
 
 def analyze_timeframe(symbol, interval):
-    prices = get_prices(symbol, interval)
-    price = prices.iloc[-1]
-    ema9 = prices.ewm(span=9).mean().iloc[-1]
-    ema21 = prices.ewm(span=21).mean().iloc[-1]
-    rsi_val = rsi(prices).iloc[-1]
-    macd_line, macd_signal = macd(prices)
+    closes = get_market_data(symbol, interval)
 
-    if ema9 > ema21 and 45 <= rsi_val <= 65 and macd_line > macd_signal:
-        direction = "CALL"
-    elif ema9 < ema21 and 35 <= rsi_val <= 55 and macd_line < macd_signal:
-        direction = "PUT"
+    price = closes[-1]
+    ema9 = ema(closes, 9)
+    ema21 = ema(closes, 21)
+    rsi = calculate_rsi(closes)
+    macd_line, macd_signal = calculate_macd(closes)
+
+    call = 0
+    put = 0
+    notes = []
+
+    if ema9 > ema21:
+        call += 30
+        notes.append("EMA вверх")
+    elif ema9 < ema21:
+        put += 30
+        notes.append("EMA вниз")
+
+    if macd_line > macd_signal:
+        call += 25
+        notes.append("MACD вверх")
+    elif macd_line < macd_signal:
+        put += 25
+        notes.append("MACD вниз")
+
+    if 45 <= rsi <= 67:
+        call += 20
+        notes.append(f"RSI CALL {rsi:.1f}")
+    elif 33 <= rsi <= 55:
+        put += 20
+        notes.append(f"RSI PUT {rsi:.1f}")
+    elif rsi > 72:
+        put += 10
+        notes.append(f"RSI перекуплен {rsi:.1f}")
+    elif rsi < 28:
+        call += 10
+        notes.append(f"RSI перепродан {rsi:.1f}")
     else:
-        direction = "WAIT"
+        notes.append(f"RSI нейтральный {rsi:.1f}")
+
+    flat = abs(ema9 - ema21) / price if price else 0
+
+    if flat < 0.00005:
+        notes.append("возможный флэт")
+        call -= 15
+        put -= 15
 
     return {
-        "direction": direction,
         "price": price,
         "ema9": ema9,
         "ema21": ema21,
-        "rsi": rsi_val,
+        "rsi": rsi,
         "macd": macd_line,
-        "macd_signal": macd_signal
+        "macd_signal": macd_signal,
+        "call": max(call, 0),
+        "put": max(put, 0),
+        "notes": notes,
     }
 
-def make_signal(asset_key, expiry=3):
-    asset = ASSETS[asset_key]
-    one_min = analyze_timeframe(asset["symbol"], "1min")
-    five_min = analyze_timeframe(asset["symbol"], "5min")
 
-    if one_min["direction"] == "CALL" and five_min["direction"] == "CALL":
-        signal = "ВВЕРХ 🟢"
-        confidence = 85
-    elif one_min["direction"] == "PUT" and five_min["direction"] == "PUT":
-        signal = "ВНИЗ 🔴"
-        confidence = 85
-    else:
-        signal = "ЖДАТЬ ⚪"
-        confidence = 55
+def analyze_asset(asset_name):
+    symbol = ASSETS[asset_name]
 
-    item = {
-        "time": datetime.utcnow().strftime("%H:%M:%S UTC"),
-        "asset": asset["name"],
-        "signal": signal,
-        "price": one_min["price"],
-        "rsi": one_min["rsi"],
-        "ema9": one_min["ema9"],
-        "ema21": one_min["ema21"],
-        "confidence": confidence
-    }
+    try:
+        tf1 = analyze_timeframe(symbol, "1min")
+        tf5 = analyze_timeframe(symbol, "5min")
 
-    history.append(item)
-    if len(history) > 50:
-        history.pop(0)
+        call_score = tf1["call"] + tf5["call"]
+        put_score = tf1["put"] + tf5["put"]
 
-    return f"""
-📊 Сигнал для Binarium
+        reasons = []
+        reasons.extend([f"1м: {x}" for x in tf1["notes"]])
+        reasons.extend([f"5м: {x}" for x in tf5["notes"]])
 
-Актив: {asset["name"]}
-Сигнал: {signal}
-Экспирация: {expiry} мин.
+        if call_score > put_score and call_score >= 95:
+            signal = "🟢 CALL"
+            confidence = min(95, int(call_score / 1.3))
+        elif put_score > call_score and put_score >= 95:
+            signal = "🔴 PUT"
+            confidence = min(95, int(put_score / 1.3))
+        else:
+            signal = "⚪ WAIT"
+            confidence = max(55, min(74, int(max(call_score, put_score) / 1.5)))
 
-Цена: {one_min["price"]:.5f}
-RSI: {one_min["rsi"]:.2f}
-EMA 9: {one_min["ema9"]:.5f}
-EMA 21: {one_min["ema21"]:.5f}
+        if confidence >= 85:
+            strength = "🔥 Очень сильный"
+        elif confidence >= 75:
+            strength = "✅ Сильный"
+        elif confidence >= 65:
+            strength = "⚠️ Средний"
+        else:
+            strength = "⏳ Слабый / ждать"
 
-⏱ Подтверждение:
-1 минута: {one_min["direction"]}
-5 минут: {five_min["direction"]}
+        result = {
+            "asset": asset_name,
+            "symbol": symbol,
+            "signal": signal,
+            "confidence": confidence,
+            "strength": strength,
+            "price": tf1["price"],
+            "ema9": tf1["ema9"],
+            "ema21": tf1["ema21"],
+            "rsi": tf1["rsi"],
+            "macd": tf1["macd"],
+            "tf1_call": tf1["call"],
+            "tf1_put": tf1["put"],
+            "tf5_call": tf5["call"],
+            "tf5_put": tf5["put"],
+            "reason": ", ".join(reasons),
+            "time": datetime.utcnow().strftime("%H:%M UTC")
+        }
 
-Уверенность: {confidence}%
+        history.append(result)
 
-⚠️ Это не финансовая рекомендация.
-Сначала тестируйте только на демо-счёте.
-"""
+        if len(history) > 100:
+            history.pop(0)
+
+        return result
+
+    except Exception as e:
+        return {
+            "asset": asset_name,
+            "symbol": symbol,
+            "signal": "⚪ WAIT",
+            "confidence": 50,
+            "strength": "Ошибка данных",
+            "price": 0,
+            "ema9": 0,
+            "ema21": 0,
+            "rsi": 50,
+            "macd": 0,
+            "tf1_call": 0,
+            "tf1_put": 0,
+            "tf5_call": 0,
+            "tf5_put": 0,
+            "reason": f"Ошибка данных: {e}",
+            "time": datetime.utcnow().strftime("%H:%M UTC")
+        }
+
+
+def format_signal(asset_name, chat_id=None, vip=False):
+    data = analyze_asset(asset_name)
+    expiry = get_expiry(chat_id) if chat_id else 3
+
+    title = "🚀 VIP-СИГНАЛ" if vip else "📊 PRO-сигнал"
+
+    return (
+        f"{title}\n\n"
+        f"📈 Актив: {data['asset']}\n"
+        f"💵 Цена: {data['price']:.5f}\n\n"
+        f"Сигнал: {data['signal']}\n"
+        f"🔥 Уверенность: {data['confidence']}%\n"
+        f"💎 Сила: {data['strength']}\n"
+        f"⏱ Экспирация: {expiry} мин.\n\n"
+        f"📉 EMA 9: {data['ema9']:.5f}\n"
+        f"📉 EMA 21: {data['ema21']:.5f}\n"
+        f"📊 RSI: {data['rsi']:.1f}\n"
+        f"📊 MACD: {data['macd']:.5f}\n\n"
+        f"🧩 Подтверждение:\n"
+        f"1 минута: CALL {data['tf1_call']} / PUT {data['tf1_put']}\n"
+        f"5 минут: CALL {data['tf5_call']} / PUT {data['tf5_put']}\n\n"
+        f"🧠 Анализ: {data['reason']}\n"
+        f"🕒 Время: {data['time']}\n\n"
+        f"⚠️ Это не финансовая рекомендация.\n"
+        f"Сначала тестируйте только на демо-счёте."
+    )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     subscribers.add(chat_id)
-    get_setting(chat_id)
 
     await update.message.reply_text(
-        """
-👋 Добро пожаловать в бота сигналов Binarium!
-
-✅ Вы подписаны на автоматические сигналы.
-
-📊 Доступные активы:
-EUR/USD | GBP/USD | USD/JPY | XAU/USD | BTC/USD
-
-Команды:
-/signal — общий сигнал
-/eurusd — EUR/USD
-/gbpusd — GBP/USD
-/usdjpy — USD/JPY
-/gold — золото
-/btc — Bitcoin
-/status — статус
-/history — история
-/stats — статистика
-/stop — остановить сигналы
-
-⚠️ Это не финансовая рекомендация.
-Сначала тестируйте только на демо-счёте.
-""",
+        "👋 Добро пожаловать в Binarium Signal VIP!\n\n"
+        "✅ Автоматические сигналы включены.\n\n"
+        "📊 Анализ:\n"
+        "EMA 9 + EMA 21 + RSI + MACD\n"
+        "Подтверждение 1м + 5м\n"
+        "Фильтр флэта\n\n"
+        "📈 Активы:\n"
+        "EUR/USD, GBP/USD, USD/JPY, GOLD, BTC\n\n"
+        "Используйте кнопки ниже 👇",
         reply_markup=keyboard
     )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "ℹ️ Помощь\n\n"
+        "/start — запустить бота\n"
+        "/signal — сигнал EUR/USD\n"
+        "/vip — лучший сигнал по рынку\n"
+        "/eurusd — EUR/USD\n"
+        "/gbpusd — GBP/USD\n"
+        "/usdjpy — USD/JPY\n"
+        "/gold — GOLD\n"
+        "/btc — BTC\n"
+        "/history — история\n"
+        "/stats — статистика\n"
+        "/setexpiry 1 — экспирация 1 минута\n"
+        "/setexpiry 3 — экспирация 3 минуты\n"
+        "/setexpiry 5 — экспирация 5 минут\n"
+        "/status — статус\n"
+        "/stop — остановить автосигналы",
+        reply_markup=keyboard
+    )
+
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subscribers.discard(update.effective_chat.id)
-    await update.message.reply_text("⏸ Автоматические сигналы остановлены.", reply_markup=keyboard)
-
-async def send_asset(update: Update, asset_key):
-    chat_id = update.effective_chat.id
-    expiry = get_setting(chat_id)["expiry"]
-    try:
-        await update.message.reply_text(make_signal(asset_key, expiry), reply_markup=keyboard)
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}", reply_markup=keyboard)
-
-async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "eurusd")
-
-async def eurusd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "eurusd")
-
-async def gbpusd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "gbpusd")
-
-async def usdjpy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "usdjpy")
-
-async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "gold")
-
-async def btc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_asset(update, "btc")
-
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    settings = get_setting(chat_id)
-    active = "активны ✅" if chat_id in subscribers else "остановлены ⏸"
-    assets = ", ".join([ASSETS[a]["name"] for a in settings["assets"]])
 
     await update.message.reply_text(
-        f"""
-⚙️ Статус бота
-
-Автосигналы: {active}
-Активы: {assets}
-Экспирация: {settings["expiry"]} мин.
-История сигналов: {len(history)}
-
-Команды работают ✅
-""",
+        "⏸ Автоматические сигналы отключены.\n\n"
+        "Чтобы включить снова, нажмите /start.",
         reply_markup=keyboard
     )
 
+
+async def send_signal(update: Update, asset_name, vip=False):
+    chat_id = update.effective_chat.id
+
+    await update.message.reply_text(
+        format_signal(asset_name, chat_id, vip),
+        reply_markup=keyboard
+    )
+
+
+async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "EUR/USD")
+
+
+async def eurusd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "EUR/USD")
+
+
+async def gbpusd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "GBP/USD")
+
+
+async def usdjpy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "USD/JPY")
+
+
+async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "GOLD")
+
+
+async def btc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_signal(update, "BTC")
+
+
+async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    await update.message.reply_text(
+        "🔎 Ищу лучший VIP-сигнал...",
+        reply_markup=keyboard
+    )
+
+    best_asset = None
+    best_data = None
+
+    for asset_name in ASSETS.keys():
+        data = analyze_asset(asset_name)
+
+        if best_data is None or data["confidence"] > best_data["confidence"]:
+            best_data = data
+            best_asset = asset_name
+
+    await update.message.reply_text(
+        format_signal(best_asset, chat_id, vip=True),
+        reply_markup=keyboard
+    )
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    active = "включены ✅" if chat_id in subscribers else "отключены ⏸"
+
+    await update.message.reply_text(
+        f"⚙️ Статус бота\n\n"
+        f"🤖 Бот работает: ✅\n"
+        f"🔔 Автосигналы: {active}\n"
+        f"👥 Подписчиков: {len(subscribers)}\n"
+        f"⏱ Экспирация: {get_expiry(chat_id)} мин.\n"
+        f"📊 История: {len(history)} сигналов\n"
+        f"📈 Активы: EUR/USD, GBP/USD, USD/JPY, GOLD, BTC",
+        reply_markup=keyboard
+    )
+
+
 async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not history:
-        await update.message.reply_text("📜 История пока пустая.", reply_markup=keyboard)
+        await update.message.reply_text(
+            "📜 История пока пустая.",
+            reply_markup=keyboard
+        )
         return
 
-    text = "📜 Последние сигналы:\n\n"
-    for h in history[-10:]:
+    text = "📜 Последние 10 сигналов:\n\n"
+
+    for item in history[-10:]:
         text += (
-            f"{h['time']} | {h['asset']}\n"
-            f"{h['signal']} | Цена: {h['price']:.5f}\n"
-            f"RSI: {h['rsi']:.2f} | Уверенность: {h['confidence']}%\n\n"
+            f"{item['time']} | {item['asset']}\n"
+            f"{item['signal']} | {item['confidence']}%\n"
+            f"{item['strength']}\n\n"
         )
 
     await update.message.reply_text(text, reply_markup=keyboard)
 
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = len(history)
+
     if total == 0:
-        await update.message.reply_text("📊 Статистики пока нет.", reply_markup=keyboard)
+        await update.message.reply_text(
+            "📈 Статистики пока нет.",
+            reply_markup=keyboard
+        )
         return
 
-    up = sum(1 for h in history if "ВВЕРХ" in h["signal"])
-    down = sum(1 for h in history if "ВНИЗ" in h["signal"])
-    wait = sum(1 for h in history if "ЖДАТЬ" in h["signal"])
+    calls = sum(1 for x in history if "CALL" in x["signal"])
+    puts = sum(1 for x in history if "PUT" in x["signal"])
+    waits = sum(1 for x in history if "WAIT" in x["signal"])
+    strong = sum(1 for x in history if x["confidence"] >= 75)
 
     await update.message.reply_text(
-        f"""
-📊 Статистика сигналов
-
-Всего: {total}
-
-🟢 ВВЕРХ: {up} — {up / total * 100:.1f}%
-🔴 ВНИЗ: {down} — {down / total * 100:.1f}%
-⚪ ЖДАТЬ: {wait} — {wait / total * 100:.1f}%
-""",
+        f"📈 Статистика сигналов\n\n"
+        f"Всего сигналов: {total}\n\n"
+        f"🟢 CALL: {calls} — {calls / total * 100:.1f}%\n"
+        f"🔴 PUT: {puts} — {puts / total * 100:.1f}%\n"
+        f"⚪ WAIT: {waits} — {waits / total * 100:.1f}%\n"
+        f"🔥 Сильных: {strong} — {strong / total * 100:.1f}%",
         reply_markup=keyboard
     )
 
-async def setasset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    settings = get_setting(chat_id)
-
-    if not context.args:
-        await update.message.reply_text("Используйте: /setasset eurusd|gbpusd|usdjpy|gold|btc|all")
-        return
-
-    value = context.args[0].lower()
-
-    if value == "all":
-        settings["assets"] = list(ASSETS.keys())
-    elif value in ASSETS:
-        settings["assets"] = [value]
-    else:
-        await update.message.reply_text("Неизвестный актив.")
-        return
-
-    await update.message.reply_text("✅ Активы обновлены.", reply_markup=keyboard)
 
 async def setexpiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    settings = get_setting(chat_id)
 
     if not context.args or context.args[0] not in ["1", "3", "5"]:
-        await update.message.reply_text("Используйте: /setexpiry 1, /setexpiry 3 или /setexpiry 5")
+        await update.message.reply_text(
+            "Используйте:\n"
+            "/setexpiry 1\n"
+            "/setexpiry 3\n"
+            "/setexpiry 5",
+            reply_markup=keyboard
+        )
         return
 
-    settings["expiry"] = int(context.args[0])
-    await update.message.reply_text(f"✅ Экспирация установлена: {settings['expiry']} мин.", reply_markup=keyboard)
+    expiry_settings[chat_id] = int(context.args[0])
+
+    await update.message.reply_text(
+        f"✅ Экспирация установлена: {context.args[0]} мин.",
+        reply_markup=keyboard
+    )
+
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     mapping = {
-        "📊 Сигнал": "eurusd",
-        "📈 EUR/USD": "eurusd",
-        "📈 GBP/USD": "gbpusd",
-        "📈 USD/JPY": "usdjpy",
-        "🥇 GOLD": "gold",
-        "₿ BTC": "btc",
+        "📊 EUR/USD": "EUR/USD",
+        "📊 GBP/USD": "GBP/USD",
+        "📊 USD/JPY": "USD/JPY",
+        "🥇 GOLD": "GOLD",
+        "₿ Bitcoin": "BTC",
     }
 
     if text in mapping:
-        await send_asset(update, mapping[text])
+        await send_signal(update, mapping[text])
+
+    elif text == "🚀 VIP-сигнал":
+        await vip(update, context)
+
     elif text == "⚙️ Статус":
         await status(update, context)
+
     elif text == "📜 История":
         await show_history(update, context)
-    elif text == "📊 Статистика":
+
+    elif text == "📈 Статистика":
         await stats(update, context)
-    elif text == "▶️ Старт":
-        await start(update, context)
+
+    elif text == "ℹ️ Помощь":
+        await help_command(update, context)
+
     elif text == "⏸ Стоп":
         await stop(update, context)
 
+    else:
+        await update.message.reply_text(
+            "Не понял команду. Используйте кнопки ниже 👇",
+            reply_markup=keyboard
+        )
+
+
 async def auto_signals(context: ContextTypes.DEFAULT_TYPE):
     for chat_id in list(subscribers):
-        settings = get_setting(chat_id)
-        for asset_key in settings["assets"]:
+        for asset_name in ["EUR/USD", "GBP/USD", "USD/JPY"]:
             try:
-                text = make_signal(asset_key, settings["expiry"])
-                if "ЖДАТЬ" not in text:
-                    await context.bot.send_message(chat_id=chat_id, text=text)
+                data = analyze_asset(asset_name)
+
+                if data["signal"] != "⚪ WAIT" and data["confidence"] >= 75:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            "🚨 VIP автоматический сигнал\n\n"
+                            + format_signal(asset_name, chat_id, vip=True)
+                        )
+                    )
+
             except Exception:
                 pass
 
+
 def main():
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN не найден в переменных окружения")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("signal", signal))
+    app.add_handler(CommandHandler("vip", vip))
     app.add_handler(CommandHandler("eurusd", eurusd))
     app.add_handler(CommandHandler("gbpusd", gbpusd))
     app.add_handler(CommandHandler("usdjpy", usdjpy))
@@ -348,14 +563,20 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("history", show_history))
     app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("setasset", setasset))
     app.add_handler(CommandHandler("setexpiry", setexpiry))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, buttons))
 
-    app.job_queue.run_repeating(auto_signals, interval=60, first=15)
+    app.job_queue.run_repeating(
+        auto_signals,
+        interval=60,
+        first=20
+    )
 
-    print("Бот запущен...")
-    app.run_polling()
+    print("Binarium Signal VIP запущен...", flush=True)
+
+    app.run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
