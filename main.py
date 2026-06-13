@@ -93,7 +93,19 @@ def pretty_pair(symbol):
 
 
 def convert_symbol(symbol):
-    return symbol.replace("=X", "")
+
+    mapping = {
+        "EURUSD=X": "EUR/USD",
+        "GBPUSD=X": "GBP/USD",
+        "USDJPY=X": "USD/JPY",
+        "AUDUSD=X": "AUD/USD",
+        "USDCAD=X": "USD/CAD",
+        "NZDUSD=X": "NZD/USD",
+        "EURJPY=X": "EUR/JPY",
+        "GBPJPY=X": "GBP/JPY",
+    }
+
+    return mapping.get(symbol, symbol)
 
 
 def get_market_data(symbol, interval="5min", outputsize=300):
