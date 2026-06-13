@@ -47,7 +47,283 @@ SIGNAL_PAIRS = [
     "GBPJPY=X"
 
 ]
+# =========================
+# MARKET DATA
+# =========================
 
+def pretty_pair(symbol):
+    return (
+        symbol
+        .replace("=X", "")
+        .replace("USD", "USD/")
+        .replace("EURUSD/", "EUR/USD")
+        .replace("GBPUSD/", "GBP/USD")
+        .replace("USD/JPY", "USD/JPY")
+        .replace("AUDUSD/", "AUD/USD")
+        .replace("USD/CAD", "USD/CAD")
+        .replace("NZDUSD/", "NZD/USD")
+        .replace("EURJPY", "EUR/JPY")
+        .replace("GBPJPY", "GBP/JPY")
+    )
+
+
+def get_market_data(symbol, period="5d", interval="5m"):
+    try:
+        df = yf.download(
+            symbol,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True
+        )
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index()
+
+        df.columns = [
+            str(col).lower().replace(" ", "_")
+            for col in df.columns
+        ]
+
+        return df
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_last_price(symbol):
+    df = get_market_data(symbol)
+
+    if df.empty or "close" not in df.columns:
+        return 0.0
+
+    try:
+        return float(df["close"].iloc[-1])
+    except Exception:
+        return 0.0
+# =========================
+# INDICATORS
+# =========================
+
+from ta.trend import EMAIndicator, MACD, ADXIndicator
+from ta.momentum import RSIIndicator
+
+
+def add_indicators(df):
+
+    if df.empty:
+        return df
+
+    try:
+
+        df["ema50"] = EMAIndicator(
+            close=df["close"],
+            window=50
+        ).ema_indicator()
+
+        df["ema200"] = EMAIndicator(
+            close=df["close"],
+            window=200
+        ).ema_indicator()
+
+        df["rsi"] = RSIIndicator(
+            close=df["close"],
+            window=14
+        ).rsi()
+
+        macd = MACD(
+            close=df["close"]
+        )
+
+        df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
+
+        adx = ADXIndicator(
+            high=df["high"],
+            low=df["low"],
+            close=df["close"]
+        )
+
+        df["adx"] = adx.adx()
+
+        return df
+
+    except Exception as e:
+
+        print(
+            f"Indicator error: {e}"
+        )
+
+        return df
+
+# =========================
+# SIGNAL ENGINE
+# =========================
+
+def analyze_pair(symbol):
+
+    df = get_market_data(symbol)
+
+    if df.empty:
+        return None
+
+    df = add_indicators(df)
+
+    if len(df) < 210:
+        return None
+
+    last = df.iloc[-1]
+
+    try:
+
+        ema50 = float(last["ema50"])
+        ema200 = float(last["ema200"])
+
+        rsi = float(last["rsi"])
+
+        macd = float(last["macd"])
+        macd_signal = float(last["macd_signal"])
+
+        adx = float(last["adx"])
+
+    except:
+        return None
+
+    score = 0
+
+    # ========= CALL =========
+
+    if ema50 > ema200:
+        score += 1
+
+    if macd > macd_signal:
+        score += 1
+
+    if 45 <= rsi <= 70:
+        score += 1
+
+    if adx > 20:
+        score += 1
+
+    if score >= 4:
+
+        return {
+            "symbol": symbol,
+            "signal": "CALL",
+            "score": score,
+            "rsi": round(rsi, 1),
+            "adx": round(adx, 1)
+        }
+
+    # ========= PUT =========
+
+    score = 0
+
+    if ema50 < ema200:
+        score += 1
+
+    if macd < macd_signal:
+        score += 1
+
+    if 30 <= rsi <= 55:
+        score += 1
+
+    if adx > 20:
+        score += 1
+
+    if score >= 4:
+
+        return {
+            "symbol": symbol,
+            "signal": "PUT",
+            "score": score,
+            "rsi": round(rsi, 1),
+            "adx": round(adx, 1)
+        }
+
+    return None
+# =========================
+# SIGNAL STRENGTH
+# =========================
+
+def build_signal_message(signal_data):
+
+    if signal_data is None:
+
+        return (
+            "⚪ Сигнал не найден"
+        )
+
+    signal = signal_data["signal"]
+
+    symbol = (
+        signal_data["symbol"]
+        .replace("=X", "")
+    )
+
+    rsi = signal_data["rsi"]
+    adx = signal_data["adx"]
+
+    strength = signal_data["score"] * 25
+
+    emoji = (
+        "🟢"
+        if signal == "CALL"
+        else "🔴"
+    )
+
+    arrow = (
+        "CALL"
+        if signal == "CALL"
+        else "PUT"
+    )
+
+    message = (
+
+        f"{emoji} {arrow}\n\n"
+
+        f"Пара:\n"
+        f"{symbol}\n\n"
+
+        f"Сила сигнала:\n"
+        f"{strength}%\n\n"
+
+        f"RSI: {rsi}\n"
+        f"ADX: {adx}\n\n"
+
+        f"Экспирация:\n"
+        f"5 минут"
+
+    )
+
+    return message
+# =========================
+# SCANNER
+# =========================
+
+def scan_market():
+
+    signals = []
+
+    for symbol in SIGNAL_PAIRS:
+
+        try:
+
+            signal_data = analyze_pair(symbol)
+
+            if signal_data:
+
+                signals.append(signal_data)
+
+        except Exception as e:
+
+            print(
+                f"Scan error {symbol}: {e}"
+            )
+
+    return signals
 # =========================
 # KEYBOARD
 # =========================
@@ -103,6 +379,38 @@ async def start_command(message: types.Message):
 
     )
 
+@dp.message(lambda message: message.text == "🔍 Сканер")
+async def scanner_button(message: types.Message):
+
+    signals = scan_market()
+
+    if not signals:
+
+        await message.answer(
+            "⚪ Сигналы не найдены"
+        )
+
+        return
+
+    text = "🔍 Найденные сигналы\n\n"
+
+    for signal in signals:
+
+        symbol = (
+            signal["symbol"]
+            .replace("=X", "")
+        )
+
+        strength = signal["score"] * 25
+
+        text += (
+            f"{'🟢' if signal['signal']=='CALL' else '🔴'} "
+            f"{signal['signal']} "
+            f"{symbol}\n"
+            f"Сила: {strength}%\n\n"
+        )
+
+    await message.answer(text)
 # =========================
 # MAIN
 # =========================
