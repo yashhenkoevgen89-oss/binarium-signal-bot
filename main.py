@@ -275,34 +275,31 @@ def analyze_pair(symbol):
 
     score = 0
 
-    # EMA trend
-    if ema20 > ema50 > ema200:
-        score += 2
+    if ema20 > ema50:
+        score += 1
 
-    # MACD
+    if ema50 > ema200:
+        score += 1
+
     if macd > macd_signal:
         score += 2
 
-    # RSI
-    if 50 <= rsi <= 65:
+    if 45 <= rsi <= 70:
         score += 1
 
-    # ADX
     if adx > 25:
         score += 1
 
-    if adx > 30:
+    if adx > 28:
         score += 1
 
-    # Bollinger
     if close < bb_high:
         score += 1
 
-    # Stochastic
-    if stoch < 80:
+    if stoch < 85:
         score += 1
 
-    if score >= 6:
+    if score >= 5:
 
         return {
             "symbol": symbol,
@@ -318,34 +315,31 @@ def analyze_pair(symbol):
 
     score = 0
 
-    # EMA trend
-    if ema20 < ema50 < ema200:
-        score += 2
+    if ema20 < ema50:
+        score += 1
 
-    # MACD
+    if ema50 < ema200:
+        score += 1
+
     if macd < macd_signal:
         score += 2
 
-    # RSI
-    if 35 <= rsi <= 50:
+    if 30 <= rsi <= 55:
         score += 1
 
-    # ADX
     if adx > 25:
         score += 1
 
-    if adx > 30:
+    if adx > 28:
         score += 1
 
-    # Bollinger
     if close > bb_low:
         score += 1
 
-    # Stochastic
-    if stoch > 20:
+    if stoch > 15:
         score += 1
 
-    if score >= 6:
+    if score >= 5:
 
         return {
             "symbol": symbol,
