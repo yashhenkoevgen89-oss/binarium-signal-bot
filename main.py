@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pandas as pd
 import numpy as np
-import yfinance as yf
+import requests
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -82,48 +82,70 @@ SIGNAL_PAIRS = [
 
 ]
 # =========================
-# MARKET DATA
+# MARKET DATA - TWELVEDATA
 # =========================
 
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
+
+
 def pretty_pair(symbol):
-    return (
-        symbol
-        .replace("=X", "")
-        .replace("USD", "USD/")
-        .replace("EURUSD/", "EUR/USD")
-        .replace("GBPUSD/", "GBP/USD")
-        .replace("USD/JPY", "USD/JPY")
-        .replace("AUDUSD/", "AUD/USD")
-        .replace("USD/CAD", "USD/CAD")
-        .replace("NZDUSD/", "NZD/USD")
-        .replace("EURJPY", "EUR/JPY")
-        .replace("GBPJPY", "GBP/JPY")
-    )
+    return symbol.replace("/", "")
 
 
-def get_market_data(symbol, period="5d", interval="5m"):
+def convert_symbol(symbol):
+    return symbol.replace("=X", "")
+
+
+def get_market_data(symbol, interval="5min", outputsize=300):
     try:
-        df = yf.download(
-            symbol,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True
+        clean_symbol = convert_symbol(symbol)
+
+        url = "https://api.twelvedata.com/time_series"
+
+        params = {
+            "symbol": clean_symbol,
+            "interval": interval,
+            "outputsize": outputsize,
+            "apikey": TWELVE_DATA_API_KEY,
+        }
+
+        response = requests.get(
+            url,
+            params=params,
+            timeout=15
         )
 
-        if df is None or df.empty:
+        data = response.json()
+
+        if "values" not in data:
+            print(f"TwelveData error {clean_symbol}: {data}")
             return pd.DataFrame()
 
-        df = df.reset_index()
+        df = pd.DataFrame(data["values"])
 
-        df.columns = [
-            str(col).lower().replace(" ", "_")
-            for col in df.columns
-        ]
+        df = df.rename(
+            columns={
+                "datetime": "datetime",
+                "open": "open",
+                "high": "high",
+                "low": "low",
+                "close": "close",
+            }
+        )
+
+        for col in ["open", "high", "low", "close"]:
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+
+        df = df.dropna()
+        df = df.iloc[::-1].reset_index(drop=True)
 
         return df
 
-    except Exception:
+    except Exception as e:
+        print(f"TwelveData request error {symbol}: {e}")
         return pd.DataFrame()
 
 
