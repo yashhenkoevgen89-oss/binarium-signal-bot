@@ -87,6 +87,8 @@ SIGNAL_PAIRS = [
 
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
+twelve_errors = {}
+
 
 def pretty_pair(symbol):
     return symbol.replace("/", "")
@@ -107,8 +109,10 @@ def convert_symbol(symbol):
 
     return mapping.get(symbol, symbol)
 
-
 def get_market_data(symbol, interval="5min", outputsize=300):
+
+    global twelve_errors
+
     try:
         clean_symbol = convert_symbol(symbol)
 
@@ -130,20 +134,10 @@ def get_market_data(symbol, interval="5min", outputsize=300):
         data = response.json()
 
         if "values" not in data:
-            print(f"TwelveData error {clean_symbol}: {data}")
+            twelve_errors[symbol] = str(data)
             return pd.DataFrame()
 
         df = pd.DataFrame(data["values"])
-
-        df = df.rename(
-            columns={
-                "datetime": "datetime",
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "close": "close",
-            }
-        )
 
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(
@@ -157,7 +151,7 @@ def get_market_data(symbol, interval="5min", outputsize=300):
         return df
 
     except Exception as e:
-        print(f"TwelveData request error {symbol}: {e}")
+        twelve_errors[symbol] = str(e)
         return pd.DataFrame()
 
 
@@ -307,7 +301,10 @@ def debug_pair(symbol):
     df = get_market_data(symbol)
 
     if df.empty:
-        return f"{symbol.replace('=X', '')}: нет данных"
+        return (
+            f"{symbol.replace('=X', '')}: нет данных\n"
+            f"{twelve_errors.get(symbol, 'нет ошибки')}"
+        )
 
     df = add_indicators(df)
 
