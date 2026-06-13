@@ -285,7 +285,6 @@ def analyze_pair(symbol):
     last = df.iloc[-1]
 
     try:
-
         ema20 = float(last["ema20"])
         ema50 = float(last["ema50"])
         ema200 = float(last["ema200"])
@@ -306,141 +305,83 @@ def analyze_pair(symbol):
 
     except:
         return None
-def debug_pair(symbol):
-
-    df = get_market_data(symbol)
-
-    if df.empty:
-        return (
-            f"{symbol.replace('=X', '')}: нет данных\n"
-            f"{twelve_errors.get(symbol, 'нет ошибки')}"
-        )
-
-    df = add_indicators(df)
-
-    if len(df) < 210:
-        return f"{symbol.replace('=X', '')}: мало свечей"
-
-    last = df.iloc[-1]
-
-    try:
-        ema20 = float(last["ema20"])
-        ema50 = float(last["ema50"])
-        ema200 = float(last["ema200"])
-        rsi = float(last["rsi"])
-        macd = float(last["macd"])
-        macd_signal = float(last["macd_signal"])
-        adx = float(last["adx"])
-    except Exception as e:
-        return f"{symbol.replace('=X', '')}: ошибка индикаторов {e}"
-
-    call_score = 0
-    put_score = 0
-
-    if ema20 > ema50:
-        call_score += 1
-    if ema50 > ema200:
-        call_score += 1
-    if macd > macd_signal:
-        call_score += 2
-    if 45 <= rsi <= 70:
-        call_score += 1
-    if adx > 25:
-        call_score += 1
-
-    if ema20 < ema50:
-        put_score += 1
-    if ema50 < ema200:
-        put_score += 1
-    if macd < macd_signal:
-        put_score += 2
-    if 30 <= rsi <= 55:
-        put_score += 1
-    if adx > 25:
-        put_score += 1
-
-    return (
-        f"{symbol.replace('=X', '')}: "
-        f"CALL {call_score}/6 | PUT {put_score}/6 | "
-        f"RSI {rsi:.1f} | ADX {adx:.1f}"
-    )
 
     # =====================
     # CALL
     # =====================
 
-    score = 0
+    call_score = 0
 
     if ema20 > ema50:
-        score += 1
+        call_score += 1
 
     if ema50 > ema200:
-        score += 1
+        call_score += 1
 
     if macd > macd_signal:
-        score += 2
+        call_score += 2
 
     if 45 <= rsi <= 70:
-        score += 1
+        call_score += 1
 
-    if adx > 25:
-        score += 1
+    if adx > 22:
+        call_score += 1
 
     if adx > 28:
-        score += 1
+        call_score += 1
 
     if close < bb_high:
-        score += 1
+        call_score += 1
 
     if stoch < 85:
-        score += 1
-
-    if score >= 5:
-
-        return {
-            "symbol": symbol,
-            "signal": "CALL",
-            "score": score,
-            "rsi": round(rsi, 1),
-            "adx": round(adx, 1)
-        }
+        call_score += 1
 
     # =====================
     # PUT
     # =====================
 
-    score = 0
+    put_score = 0
 
     if ema20 < ema50:
-        score += 1
+        put_score += 1
 
     if ema50 < ema200:
-        score += 1
+        put_score += 1
 
     if macd < macd_signal:
-        score += 2
+        put_score += 2
 
     if 30 <= rsi <= 55:
-        score += 1
+        put_score += 1
 
-    if adx > 25:
-        score += 1
+    if adx > 22:
+        put_score += 1
 
     if adx > 28:
-        score += 1
+        put_score += 1
 
     if close > bb_low:
-        score += 1
+        put_score += 1
 
     if stoch > 15:
-        score += 1
+        put_score += 1
 
-    if score >= 5:
+    if call_score >= put_score and call_score >= 4:
+
+        return {
+            "symbol": symbol,
+            "signal": "CALL",
+            "score": call_score,
+            "rsi": round(rsi, 1),
+            "adx": round(adx, 1)
+        }
+
+    if put_score > call_score and put_score >= 4:
 
         return {
             "symbol": symbol,
             "signal": "PUT",
-            "score": score,
+            "score": put_score,
             "rsi": round(rsi, 1),
             "adx": round(adx, 1)
         }
