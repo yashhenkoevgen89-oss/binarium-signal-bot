@@ -325,6 +325,24 @@ def scan_market():
 
     return signals
 # =========================
+# BEST SIGNAL
+# =========================
+
+def get_best_signal():
+
+    signals = scan_market()
+
+    if not signals:
+        return None
+
+    signals = sorted(
+        signals,
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return signals[0]
+# =========================
 # KEYBOARD
 # =========================
 
