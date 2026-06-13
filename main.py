@@ -1,1 +1,1 @@
-
+print("Binarium Signal Bot")
