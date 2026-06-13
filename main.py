@@ -268,6 +268,61 @@ def analyze_pair(symbol):
 
     except:
         return None
+def debug_pair(symbol):
+
+    df = get_market_data(symbol)
+
+    if df.empty:
+        return f"{symbol.replace('=X', '')}: нет данных"
+
+    df = add_indicators(df)
+
+    if len(df) < 210:
+        return f"{symbol.replace('=X', '')}: мало свечей"
+
+    last = df.iloc[-1]
+
+    try:
+        ema20 = float(last["ema20"])
+        ema50 = float(last["ema50"])
+        ema200 = float(last["ema200"])
+        rsi = float(last["rsi"])
+        macd = float(last["macd"])
+        macd_signal = float(last["macd_signal"])
+        adx = float(last["adx"])
+    except Exception as e:
+        return f"{symbol.replace('=X', '')}: ошибка индикаторов {e}"
+
+    call_score = 0
+    put_score = 0
+
+    if ema20 > ema50:
+        call_score += 1
+    if ema50 > ema200:
+        call_score += 1
+    if macd > macd_signal:
+        call_score += 2
+    if 45 <= rsi <= 70:
+        call_score += 1
+    if adx > 25:
+        call_score += 1
+
+    if ema20 < ema50:
+        put_score += 1
+    if ema50 < ema200:
+        put_score += 1
+    if macd < macd_signal:
+        put_score += 2
+    if 30 <= rsi <= 55:
+        put_score += 1
+    if adx > 25:
+        put_score += 1
+
+    return (
+        f"{symbol.replace('=X', '')}: "
+        f"CALL {call_score}/6 | PUT {put_score}/6 | "
+        f"RSI {rsi:.1f} | ADX {adx:.1f}"
+    )
 
     # =====================
     # CALL
@@ -726,31 +781,31 @@ async def scanner_button(message: types.Message):
 
     if not signals:
 
-        await message.answer(
-            "⚪ Сигналы не найдены"
-        )
+        text = "⚪ Сигналы не найдены\n\nДиагностика:\n\n"
 
+        pairs = SIGNAL_PAIRS if SELECTED_PAIR == "ALL" else [SELECTED_PAIR]
+
+        for symbol in pairs:
+            text += debug_pair(symbol) + "\n"
+
+        await message.answer(text)
         return
 
     text = "🔍 Найденные сигналы\n\n"
 
     for signal in signals:
 
-        symbol = (
-            signal["symbol"]
-            .replace("=X", "")
-        )
-
-        strength = signal["score"] * 25
+        symbol = signal["symbol"].replace("=X", "")
 
         text += (
             f"{'🟢' if signal['signal']=='CALL' else '🔴'} "
-            f"{signal['signal']} "
-            f"{symbol}\n"
-            f"Сила: {strength}%\n\n"
+            f"{signal['signal']} {symbol}\n"
+            f"Рейтинг: "
+            f"{150 if signal['score'] >= 7 else 125}%\n\n"
         )
 
     await message.answer(text)
+    
 @dp.message(lambda message: message.text == "🏆 Лучшая")
 async def best_signal_button(message: types.Message):
 
