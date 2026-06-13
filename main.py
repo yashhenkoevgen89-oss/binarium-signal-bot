@@ -10,9 +10,13 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# =========================
+from ta.trend import EMAIndicator, MACD, ADXIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.volatility import BollingerBands
+
+# ======================
 # CONFIG
-# =========================
+# ======================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -38,6 +42,32 @@ AUTO_SCAN_ENABLED = True
 CHAT_ID = None
 
 sent_signals = set()
+
+# =========================
+# USER SETTINGS
+# =========================
+
+SELECTED_EXPIRATION = "5 мин"
+SELECTED_PAIR = "ALL"
+
+EXPIRATIONS = [
+    "1 мин",
+    "3 мин",
+    "5 мин",
+    "10 мин"
+]
+
+PAIR_NAMES = {
+    "ALL": "🌍 Все пары",
+    "EURUSD=X": "EURUSD",
+    "GBPUSD=X": "GBPUSD",
+    "USDJPY=X": "USDJPY",
+    "AUDUSD=X": "AUDUSD",
+    "USDCAD=X": "USDCAD",
+    "NZDUSD=X": "NZDUSD",
+    "EURJPY=X": "EURJPY",
+    "GBPJPY=X": "GBPJPY",
+}
 
 SIGNAL_PAIRS = [
 
@@ -260,9 +290,7 @@ def build_signal_message(signal_data):
 
     if signal_data is None:
 
-        return (
-            "⚪ Сигнал не найден"
-        )
+        return "⚪ Сигнал не найден"
 
     signal = signal_data["signal"]
 
@@ -274,7 +302,35 @@ def build_signal_message(signal_data):
     rsi = signal_data["rsi"]
     adx = signal_data["adx"]
 
-    strength = signal_data["score"] * 25
+    score = signal_data["score"]
+
+    # ======================
+    # RATING
+    # ======================
+
+    if score >= 7:
+
+        rating = 150
+
+        title = (
+            "🔥 VIP SIGNAL"
+        )
+
+        quality = (
+            "🔥 STRONG SIGNAL"
+        )
+
+    else:
+
+        rating = 125
+
+        title = (
+            "✅ HIGH QUALITY"
+        )
+
+        quality = (
+            "✅ QUALITY SIGNAL"
+        )
 
     emoji = (
         "🟢"
@@ -282,27 +338,24 @@ def build_signal_message(signal_data):
         else "🔴"
     )
 
-    arrow = (
-        "CALL"
-        if signal == "CALL"
-        else "PUT"
-    )
-
     message = (
 
-        f"{emoji} {arrow}\n\n"
+        f"{title}\n\n"
 
-        f"Пара:\n"
+        f"{emoji} {signal}\n\n"
+
         f"{symbol}\n\n"
 
-        f"Сила сигнала:\n"
-        f"{strength}%\n\n"
+        f"Рейтинг:\n"
+        f"{rating}%\n\n"
 
         f"RSI: {rsi}\n"
         f"ADX: {adx}\n\n"
 
-        f"Экспирация:\n"
-        f"5 минут"
+        f"⏱ Экспирация:\n"
+        f"{SELECTED_EXPIRATION}\n\n"
+
+        f"{quality}"
 
     )
 
@@ -315,7 +368,12 @@ def scan_market():
 
     signals = []
 
-    for symbol in SIGNAL_PAIRS:
+    if SELECTED_PAIR == "ALL":
+        pairs_to_scan = SIGNAL_PAIRS
+    else:
+        pairs_to_scan = [SELECTED_PAIR]
+
+    for symbol in pairs_to_scan:
 
         try:
 
@@ -499,34 +557,76 @@ def build_history_text(limit=10):
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
-
         [
             KeyboardButton(text="📊 Статус"),
             KeyboardButton(text="🔍 Сканер")
         ],
-
         [
             KeyboardButton(text="🏆 Лучшая"),
             KeyboardButton(text="🥇 Топ-3")
         ],
-
+        [
+            KeyboardButton(text="⏱ Экспирация"),
+            KeyboardButton(text="💱 Пара")
+        ],
         [
             KeyboardButton(text="📈 Статистика"),
             KeyboardButton(text="📅 День")
         ],
-
         [
             KeyboardButton(text="🗓 Неделя"),
             KeyboardButton(text="📆 Месяц")
         ],
-
         [
             KeyboardButton(text="🟢 Авто ВКЛ"),
             KeyboardButton(text="🔴 Авто ВЫКЛ")
         ]
-
     ],
+    resize_keyboard=True
+)
 
+expiration_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="⏱ 1 мин"),
+            KeyboardButton(text="⏱ 3 мин")
+        ],
+        [
+            KeyboardButton(text="⏱ 5 мин"),
+            KeyboardButton(text="⏱ 10 мин")
+        ],
+        [
+            KeyboardButton(text="⬅️ Назад")
+        ]
+    ],
+    resize_keyboard=True
+)
+
+pair_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="🌍 Все пары")
+        ],
+        [
+            KeyboardButton(text="EURUSD"),
+            KeyboardButton(text="GBPUSD")
+        ],
+        [
+            KeyboardButton(text="USDJPY"),
+            KeyboardButton(text="AUDUSD")
+        ],
+        [
+            KeyboardButton(text="USDCAD"),
+            KeyboardButton(text="NZDUSD")
+        ],
+        [
+            KeyboardButton(text="EURJPY"),
+            KeyboardButton(text="GBPJPY")
+        ],
+        [
+            KeyboardButton(text="⬅️ Назад")
+        ]
+    ],
     resize_keyboard=True
 )
 
@@ -632,7 +732,7 @@ async def top3_button(message: types.Message):
         )
 
     await message.answer(text)
-@dp.message(lambda message: message.text == "📊 Статус")
+@@dp.message(lambda message: message.text == "📊 Статус")
 async def status_button(message: types.Message):
 
     await message.answer(
@@ -641,13 +741,19 @@ async def status_button(message: types.Message):
 
         f"Режим: {MODE}\n\n"
 
-        f"Автосканирование: "
+        f"Экспирация:\n"
+        f"{SELECTED_EXPIRATION}\n\n"
+
+        f"Выбранная пара:\n"
+        f"{PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}\n\n"
+
+        f"Автосканирование:\n"
         f"{'🟢 ВКЛ' if AUTO_SCAN_ENABLED else '🔴 ВЫКЛ'}\n\n"
 
         f"Интервал:\n"
         f"{AUTO_INTERVAL} сек.\n\n"
 
-        f"Валютных пар:\n"
+        f"Всего пар:\n"
         f"{len(SIGNAL_PAIRS)}"
 
     )
@@ -731,6 +837,71 @@ async def auto_off(message: types.Message):
     await message.answer(
         "🔴 Автосканирование выключено"
     )
+
+
+@dp.message(lambda message: message.text == "⏱ Экспирация")
+async def expiration_menu(message: types.Message):
+    await message.answer(
+        "⏱ Выбери экспирацию:",
+        reply_markup=expiration_keyboard
+    )
+
+
+@dp.message(lambda message: message.text in ["⏱ 1 мин", "⏱ 3 мин", "⏱ 5 мин", "⏱ 10 мин"])
+async def set_expiration(message: types.Message):
+    global SELECTED_EXPIRATION
+
+    SELECTED_EXPIRATION = message.text.replace("⏱ ", "")
+
+    await message.answer(
+        f"✅ Экспирация установлена: {SELECTED_EXPIRATION}",
+        reply_markup=keyboard
+    )
+
+
+@dp.message(lambda message: message.text == "💱 Пара")
+async def pair_menu(message: types.Message):
+    await message.answer(
+        "💱 Выбери пару для сигналов:",
+        reply_markup=pair_keyboard
+    )
+
+
+@dp.message(lambda message: message.text in [
+    "🌍 Все пары",
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "AUDUSD",
+    "USDCAD",
+    "NZDUSD",
+    "EURJPY",
+    "GBPJPY"
+])
+async def set_pair(message: types.Message):
+    global SELECTED_PAIR
+    global sent_signals
+
+    if message.text == "🌍 Все пары":
+        SELECTED_PAIR = "ALL"
+    else:
+        SELECTED_PAIR = f"{message.text}=X"
+
+    sent_signals.clear()
+
+    await message.answer(
+        f"✅ Выбранная пара: {PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}",
+        reply_markup=keyboard
+    )
+
+
+@dp.message(lambda message: message.text == "⬅️ Назад")
+async def back_to_main_menu(message: types.Message):
+    await message.answer(
+        "Главное меню",
+        reply_markup=keyboard
+    )
+    
 # =========================
 # MAIN
 # =========================
