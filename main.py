@@ -302,7 +302,7 @@ def analyze_pair(symbol):
     if stoch < 80:
         score += 1
 
-    if score >= 8:
+    if score >= 6:
 
         return {
             "symbol": symbol,
@@ -345,7 +345,7 @@ def analyze_pair(symbol):
     if stoch > 20:
         score += 1
 
-    if score >= 8:
+    if score >= 6:
 
         return {
             "symbol": symbol,
