@@ -195,23 +195,25 @@ def analyze_pair(symbol):
     except:
         return None
 
+    # =====================
+    # CALL
+    # =====================
+
     score = 0
 
-    # ========= CALL =========
-
     if ema50 > ema200:
-        score += 1
+        score += 2
 
     if macd > macd_signal:
+        score += 2
+
+    if 50 <= rsi <= 65:
         score += 1
 
-    if 45 <= rsi <= 70:
+    if adx > 25:
         score += 1
 
-    if adx > 20:
-        score += 1
-
-    if score >= 4:
+    if score >= 6:
 
         return {
             "symbol": symbol,
@@ -221,23 +223,25 @@ def analyze_pair(symbol):
             "adx": round(adx, 1)
         }
 
-    # ========= PUT =========
+    # =====================
+    # PUT
+    # =====================
 
     score = 0
 
     if ema50 < ema200:
-        score += 1
+        score += 2
 
     if macd < macd_signal:
+        score += 2
+
+    if 35 <= rsi <= 50:
         score += 1
 
-    if 30 <= rsi <= 55:
+    if adx > 25:
         score += 1
 
-    if adx > 20:
-        score += 1
-
-    if score >= 4:
+    if score >= 6:
 
         return {
             "symbol": symbol,
@@ -358,6 +362,8 @@ async def auto_scanner():
                         signal_id
                     )
 
+                    save_signal(signal_data)
+                    
                     text = build_signal_message(
                         signal_data
                     )
@@ -431,6 +437,62 @@ stats = {
     "month_signals": 0
 
 }
+# =========================
+# SIGNAL HISTORY
+# =========================
+
+signal_history = []
+
+
+def save_signal(signal_data):
+    global signal_history
+    global stats
+
+    now = datetime.now()
+
+    item = {
+        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "date": now.strftime("%Y-%m-%d"),
+        "symbol": signal_data["symbol"].replace("=X", ""),
+        "signal": signal_data["signal"],
+        "score": signal_data["score"] * 25,
+        "rsi": signal_data["rsi"],
+        "adx": signal_data["adx"],
+    }
+
+    signal_history.append(item)
+
+    stats["total_signals"] += 1
+    stats["day_signals"] += 1
+    stats["week_signals"] += 1
+    stats["month_signals"] += 1
+
+    if signal_data["signal"] == "CALL":
+        stats["call_signals"] += 1
+
+    if signal_data["signal"] == "PUT":
+        stats["put_signals"] += 1
+
+    return item
+
+
+def build_history_text(limit=10):
+    if not signal_history:
+        return "📜 История сигналов пуста"
+
+    text = "📜 Последние сигналы\n\n"
+
+    for item in signal_history[-limit:][::-1]:
+        emoji = "🟢" if item["signal"] == "CALL" else "🔴"
+
+        text += (
+            f"{item['time']}\n"
+            f"{emoji} {item['signal']} {item['symbol']}\n"
+            f"Сила: {item['score']}%\n"
+            f"RSI: {item['rsi']} | ADX: {item['adx']}\n\n"
+        )
+
+    return text
 # =========================
 # KEYBOARD
 # =========================
