@@ -34,6 +34,16 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 # =========================
+# CACHE
+# =========================
+
+pair_cache = {}
+
+current_pair_index = 0
+
+last_request_time = datetime.now()
+
+# =========================
 # SIGNAL SETTINGS
 # =========================
 
@@ -520,27 +530,44 @@ def build_signal_message(signal_data):
 
 def scan_market():
 
+    global current_pair_index
+    global pair_cache
+
     signals = []
 
     if SELECTED_PAIR == "ALL":
-        pairs_to_scan = SIGNAL_PAIRS
+
+        symbol = SIGNAL_PAIRS[current_pair_index]
+
+        current_pair_index += 1
+
+        if current_pair_index >= len(SIGNAL_PAIRS):
+            current_pair_index = 0
+
+        signal_data = analyze_pair(symbol)
+
+        pair_cache[symbol] = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "signal": signal_data
+        }
+
     else:
-        pairs_to_scan = [SELECTED_PAIR]
 
-    for symbol in pairs_to_scan:
+        symbol = SELECTED_PAIR
 
-        try:
+        signal_data = analyze_pair(symbol)
 
-            signal_data = analyze_pair(symbol)
+        pair_cache[symbol] = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "signal": signal_data
+        }
 
-            if signal_data:
+    for symbol, data in pair_cache.items():
 
-                signals.append(signal_data)
+        if data.get("signal"):
 
-        except Exception as e:
-
-            print(
-                f"Scan error {symbol}: {e}"
+            signals.append(
+                data["signal"]
             )
 
     return signals
@@ -575,7 +602,7 @@ async def auto_scanner():
                     )
 
                     save_signal(signal_data)
-                    
+
                     text = build_signal_message(
                         signal_data
                     )
@@ -591,9 +618,8 @@ async def auto_scanner():
                     f"Auto scanner error: {e}"
                 )
 
-        await asyncio.sleep(
-            AUTO_INTERVAL
-        )
+        # каждые 8 секунд новая пара
+        await asyncio.sleep(8)
 # =========================
 # BEST SIGNAL
 # =========================
