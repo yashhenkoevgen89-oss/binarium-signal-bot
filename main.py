@@ -619,7 +619,7 @@ async def auto_scanner():
                 )
 
         # каждые 8 секунд новая пара
-        await asyncio.sleep(8)
+        await asyncio.sleep(9)
 # =========================
 # BEST SIGNAL
 # =========================
@@ -831,35 +831,49 @@ async def start_command(message: types.Message):
 
     )
 
-@dp.message(lambda message: message.text == "🔍 Сканер")
+@@dp.message(lambda message: message.text == "🔍 Сканер")
 async def scanner_button(message: types.Message):
 
-    signals = scan_market()
+    if not pair_cache:
 
-    if not signals:
+        await message.answer(
+            "⏳ Данных пока нет.\n\n"
+            "Подожди 1–2 минуты, бот по очереди проверяет пары."
+        )
 
-        text = "⚪ Сигналы не найдены\n\nДиагностика:\n\n"
-
-        pairs = SIGNAL_PAIRS if SELECTED_PAIR == "ALL" else [SELECTED_PAIR]
-
-        for symbol in pairs:
-            text += debug_pair(symbol) + "\n"
-
-        await message.answer(text)
         return
 
-    text = "🔍 Найденные сигналы\n\n"
+    signals = []
 
-    for signal in signals:
+    text = "🔍 Сканер рынка\n\n"
 
-        symbol = signal["symbol"].replace("=X", "")
+    for symbol, data in pair_cache.items():
 
-        text += (
-            f"{'🟢' if signal['signal']=='CALL' else '🔴'} "
-            f"{signal['signal']} {symbol}\n"
-            f"Рейтинг: "
-            f"{150 if signal['score'] >= 7 else 125}%\n\n"
-        )
+        signal_data = data.get("signal")
+        check_time = data.get("time", "—")
+
+        name = symbol.replace("=X", "")
+
+        if signal_data:
+
+            signals.append(signal_data)
+
+            rating = 150 if signal_data["score"] >= 7 else 125
+
+            text += (
+                f"{'🟢' if signal_data['signal'] == 'CALL' else '🔴'} "
+                f"{signal_data['signal']} {name}\n"
+                f"Рейтинг: {rating}%\n"
+                f"Обновлено: {check_time}\n\n"
+            )
+
+        else:
+
+            text += (
+                f"⚪ {name}\n"
+                f"Сигнала нет\n"
+                f"Обновлено: {check_time}\n\n"
+            )
 
     await message.answer(text)
     
