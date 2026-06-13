@@ -35,6 +35,10 @@ dp = Dispatcher()
 
 AUTO_SCAN_ENABLED = True
 
+CHAT_ID = None
+
+sent_signals = set()
+
 SIGNAL_PAIRS = [
 
     "EURUSD=X",
@@ -325,6 +329,54 @@ def scan_market():
 
     return signals
 # =========================
+# AUTO SCANNER
+# =========================
+
+async def auto_scanner():
+
+    global sent_signals
+
+    while True:
+
+        if AUTO_SCAN_ENABLED and CHAT_ID:
+
+            try:
+
+                signals = scan_market()
+
+                for signal_data in signals:
+
+                    signal_id = (
+                        signal_data["symbol"]
+                        + signal_data["signal"]
+                    )
+
+                    if signal_id in sent_signals:
+                        continue
+
+                    sent_signals.add(
+                        signal_id
+                    )
+
+                    text = build_signal_message(
+                        signal_data
+                    )
+
+                    await bot.send_message(
+                        CHAT_ID,
+                        "🚨 Новый сигнал\n\n" + text
+                    )
+
+            except Exception as e:
+
+                print(
+                    f"Auto scanner error: {e}"
+                )
+
+        await asyncio.sleep(
+            AUTO_INTERVAL
+        )
+# =========================
 # BEST SIGNAL
 # =========================
 
@@ -342,6 +394,43 @@ def get_best_signal():
     )
 
     return signals[0]
+# =========================
+# TOP-3 SIGNALS
+# =========================
+
+def get_top3_signals():
+
+    signals = scan_market()
+
+    if not signals:
+        return []
+
+    signals = sorted(
+        signals,
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return signals[:3]
+# =========================
+# STATISTICS
+# =========================
+
+stats = {
+
+    "total_signals": 0,
+
+    "call_signals": 0,
+
+    "put_signals": 0,
+
+    "day_signals": 0,
+
+    "week_signals": 0,
+
+    "month_signals": 0
+
+}
 # =========================
 # KEYBOARD
 # =========================
@@ -385,6 +474,9 @@ keyboard = ReplyKeyboardMarkup(
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
+    global CHAT_ID
+
+    CHAT_ID = message.chat.id
 
     await message.answer(
 
@@ -449,11 +541,143 @@ async def best_signal_button(message: types.Message):
     await message.answer(
         "🏆 Лучший сигнал\n\n" + text
     )
+
+@dp.message(lambda message: message.text == "🥇 Топ-3")
+async def top3_button(message: types.Message):
+
+    signals = get_top3_signals()
+
+    if len(signals) == 0:
+
+        await message.answer(
+            "⚪ Сигналы не найдены"
+        )
+
+        return
+
+    text = "🥇 ТОП-3 сигнала\n\n"
+
+    for i, signal in enumerate(signals, start=1):
+
+        symbol = signal["symbol"].replace("=X", "")
+
+        text += (
+            f"{i}. "
+            f"{'🟢' if signal['signal']=='CALL' else '🔴'} "
+            f"{signal['signal']} "
+            f"{symbol}\n"
+            f"Сила: {signal['score']*25}%\n\n"
+        )
+
+    await message.answer(text)
+@dp.message(lambda message: message.text == "📊 Статус")
+async def status_button(message: types.Message):
+
+    await message.answer(
+
+        "📊 Binarium Signal Bot\n\n"
+
+        f"Режим: {MODE}\n\n"
+
+        f"Автосканирование: "
+        f"{'🟢 ВКЛ' if AUTO_SCAN_ENABLED else '🔴 ВЫКЛ'}\n\n"
+
+        f"Интервал:\n"
+        f"{AUTO_INTERVAL} сек.\n\n"
+
+        f"Валютных пар:\n"
+        f"{len(SIGNAL_PAIRS)}"
+
+    )
+
+
+@dp.message(lambda message: message.text == "📈 Статистика")
+async def statistics_button(message: types.Message):
+
+    await message.answer(
+
+        "📈 Статистика\n\n"
+
+        f"Всего сигналов:\n"
+        f"{stats['total_signals']}\n\n"
+
+        f"CALL:\n"
+        f"{stats['call_signals']}\n\n"
+
+        f"PUT:\n"
+        f"{stats['put_signals']}"
+
+    )
+
+
+@dp.message(lambda message: message.text == "📅 День")
+async def day_button(message: types.Message):
+
+    await message.answer(
+
+        "📅 Сегодня\n\n"
+
+        f"Сигналов:\n"
+        f"{stats['day_signals']}"
+
+    )
+
+
+@dp.message(lambda message: message.text == "🗓 Неделя")
+async def week_button(message: types.Message):
+
+    await message.answer(
+
+        "🗓 Неделя\n\n"
+
+        f"Сигналов:\n"
+        f"{stats['week_signals']}"
+
+    )
+
+
+@dp.message(lambda message: message.text == "📆 Месяц")
+async def month_button(message: types.Message):
+
+    await message.answer(
+
+        "📆 Месяц\n\n"
+
+        f"Сигналов:\n"
+        f"{stats['month_signals']}"
+
+    )
+@dp.message(lambda message: message.text == "🟢 Авто ВКЛ")
+async def auto_on(message: types.Message):
+
+    global AUTO_SCAN_ENABLED
+
+    AUTO_SCAN_ENABLED = True
+
+    await message.answer(
+        "🟢 Автосканирование включено"
+    )
+
+
+@dp.message(lambda message: message.text == "🔴 Авто ВЫКЛ")
+async def auto_off(message: types.Message):
+
+    global AUTO_SCAN_ENABLED
+
+    AUTO_SCAN_ENABLED = False
+
+    await message.answer(
+        "🔴 Автосканирование выключено"
+    )
 # =========================
 # MAIN
 # =========================
 
 async def main():
+
+    asyncio.create_task(
+        auto_scanner()
+    )
 
     await dp.start_polling(bot)
 
