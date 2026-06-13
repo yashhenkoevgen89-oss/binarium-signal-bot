@@ -806,7 +806,7 @@ async def top3_button(message: types.Message):
         )
 
     await message.answer(text)
-@@dp.message(lambda message: message.text == "📊 Статус")
+@dp.message(lambda message: message.text == "📊 Статус")
 async def status_button(message: types.Message):
 
     await message.answer(
