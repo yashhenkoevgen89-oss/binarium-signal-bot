@@ -831,7 +831,7 @@ async def start_command(message: types.Message):
 
     )
 
-@@dp.message(lambda message: message.text == "🔍 Сканер")
+@dp.message(lambda message: message.text == "🔍 Сканер")
 async def scanner_button(message: types.Message):
 
     if not pair_cache:
