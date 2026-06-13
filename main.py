@@ -429,6 +429,26 @@ async def scanner_button(message: types.Message):
         )
 
     await message.answer(text)
+@dp.message(lambda message: message.text == "🏆 Лучшая")
+async def best_signal_button(message: types.Message):
+
+    signal_data = get_best_signal()
+
+    if signal_data is None:
+
+        await message.answer(
+            "⚪ Сигналы не найдены"
+        )
+
+        return
+
+    text = build_signal_message(
+        signal_data
+    )
+
+    await message.answer(
+        "🏆 Лучший сигнал\n\n" + text
+    )
 # =========================
 # MAIN
 # =========================
