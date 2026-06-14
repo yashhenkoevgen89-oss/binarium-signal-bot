@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime
 
 import pandas as pd
-import numpy as np
 import requests
 
 from aiogram import Bot, Dispatcher, types
@@ -14,57 +13,38 @@ from ta.trend import EMAIndicator, MACD, ADXIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import BollingerBands
 
+
 # ======================
 # CONFIG
 # ======================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
 MODE = os.getenv("MODE", "DEMO")
-
-AUTO_INTERVAL = int(
-    os.getenv("AUTO_INTERVAL", "300")
-)
-
-# =========================
-# TELEGRAM
-# =========================
+AUTO_INTERVAL = int(os.getenv("AUTO_INTERVAL", "300"))
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# =========================
-# CACHE
-# =========================
 
-pair_cache = {}
-
-current_pair_index = 0
-
-last_request_time = datetime.now()
-
-# =========================
-# SIGNAL SETTINGS
-# =========================
+# ======================
+# SETTINGS
+# ======================
 
 AUTO_SCAN_ENABLED = True
-
 CHAT_ID = None
-
-sent_signals = set()
-
-# =========================
-# USER SETTINGS
-# =========================
 
 SELECTED_EXPIRATION = "5 мин"
 SELECTED_PAIR = "ALL"
 
-EXPIRATIONS = [
-    "1 мин",
-    "3 мин",
-    "5 мин",
-    "10 мин"
+SIGNAL_PAIRS = [
+    "EURUSD=X",
+    "EURJPY=X",
+    "GBPUSD=X",
+    "GBPJPY=X",
+    "USDJPY=X",
+    "USDCAD=X",
 ]
 
 PAIR_NAMES = {
@@ -77,29 +57,63 @@ PAIR_NAMES = {
     "USDCAD=X": "USDCAD",
 }
 
-SIGNAL_PAIRS = [
-    "EURUSD=X",
-    "EURJPY=X",
-    "GBPUSD=X",
-    "GBPJPY=X",
-    "USDJPY=X",
-    "USDCAD=X"
-]
-# =========================
-# MARKET DATA - TWELVEDATA
-# =========================
+pair_cache = {}
+current_pair_index = 0
+sent_signals = set()
+signal_history = []
 
-TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
-
-twelve_errors = {}
+stats = {
+    "total_signals": 0,
+    "call_signals": 0,
+    "put_signals": 0,
+    "day_signals": 0,
+    "week_signals": 0,
+    "month_signals": 0,
+}
 
 
-def pretty_pair(symbol):
-    return symbol.replace("/", "")
+# ======================
+# KEYBOARDS
+# ======================
 
+keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Статус"), KeyboardButton(text="🔎 Сканер")],
+        [KeyboardButton(text="🏆 Лучшая"), KeyboardButton(text="🥇 Топ-3")],
+        [KeyboardButton(text="⏱ Экспирация"), KeyboardButton(text="💱 Пара")],
+        [KeyboardButton(text="📈 Статистика"), KeyboardButton(text="📅 День")],
+        [KeyboardButton(text="🗓 Неделя"), KeyboardButton(text="📆 Месяц")],
+        [KeyboardButton(text="🟢 Авто ВКЛ"), KeyboardButton(text="🔴 Авто ВЫКЛ")],
+    ],
+    resize_keyboard=True
+)
+
+pair_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🌍 Все пары")],
+        [KeyboardButton(text="EURUSD"), KeyboardButton(text="EURJPY")],
+        [KeyboardButton(text="GBPUSD"), KeyboardButton(text="GBPJPY")],
+        [KeyboardButton(text="USDJPY"), KeyboardButton(text="USDCAD")],
+        [KeyboardButton(text="⬅️ Назад")],
+    ],
+    resize_keyboard=True
+)
+
+expiration_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="⏱ 1 мин"), KeyboardButton(text="⏱ 3 мин")],
+        [KeyboardButton(text="⏱ 5 мин"), KeyboardButton(text="⏱ 10 мин")],
+        [KeyboardButton(text="⬅️ Назад")],
+    ],
+    resize_keyboard=True
+)
+
+
+# ======================
+# MARKET DATA
+# ======================
 
 def convert_symbol(symbol):
-
     mapping = {
         "EURUSD=X": "EUR/USD",
         "EURJPY=X": "EUR/JPY",
@@ -108,46 +122,31 @@ def convert_symbol(symbol):
         "USDJPY=X": "USD/JPY",
         "USDCAD=X": "USD/CAD",
     }
-
     return mapping.get(symbol, symbol)
 
-    return mapping.get(symbol, symbol)
 
 def get_market_data(symbol, interval="5min", outputsize=300):
-
-    global twelve_errors
-
     try:
-        clean_symbol = convert_symbol(symbol)
-
         url = "https://api.twelvedata.com/time_series"
 
         params = {
-            "symbol": clean_symbol,
+            "symbol": convert_symbol(symbol),
             "interval": interval,
             "outputsize": outputsize,
             "apikey": TWELVE_DATA_API_KEY,
         }
 
-        response = requests.get(
-            url,
-            params=params,
-            timeout=15
-        )
-
+        response = requests.get(url, params=params, timeout=15)
         data = response.json()
 
         if "values" not in data:
-            twelve_errors[symbol] = str(data)
+            print(f"TwelveData error {symbol}: {data}")
             return pd.DataFrame()
 
         df = pd.DataFrame(data["values"])
 
         for col in ["open", "high", "low", "close"]:
-            df[col] = pd.to_numeric(
-                df[col],
-                errors="coerce"
-            )
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
         df = df.dropna()
         df = df.iloc[::-1].reset_index(drop=True)
@@ -155,117 +154,51 @@ def get_market_data(symbol, interval="5min", outputsize=300):
         return df
 
     except Exception as e:
-        twelve_errors[symbol] = str(e)
+        print(f"Market data error {symbol}: {e}")
         return pd.DataFrame()
 
 
-def get_last_price(symbol):
-    df = get_market_data(symbol)
-
-    if df.empty or "close" not in df.columns:
-        return 0.0
-
-    try:
-        return float(df["close"].iloc[-1])
-    except Exception:
-        return 0.0
-# =========================
+# ======================
 # INDICATORS
-# =========================
-
-from ta.trend import EMAIndicator, MACD, ADXIndicator
-from ta.momentum import RSIIndicator
-
+# ======================
 
 def add_indicators(df):
-
     if df.empty:
         return df
 
     try:
+        df["ema20"] = EMAIndicator(df["close"], window=20).ema_indicator()
+        df["ema50"] = EMAIndicator(df["close"], window=50).ema_indicator()
+        df["ema200"] = EMAIndicator(df["close"], window=200).ema_indicator()
 
-        # EMA
-        df["ema20"] = EMAIndicator(
-            close=df["close"],
-            window=20
-        ).ema_indicator()
+        df["rsi"] = RSIIndicator(df["close"], window=14).rsi()
 
-        df["ema50"] = EMAIndicator(
-            close=df["close"],
-            window=50
-        ).ema_indicator()
-
-        df["ema200"] = EMAIndicator(
-            close=df["close"],
-            window=200
-        ).ema_indicator()
-
-        # RSI
-        df["rsi"] = RSIIndicator(
-            close=df["close"],
-            window=14
-        ).rsi()
-
-        # MACD
-        macd = MACD(
-            close=df["close"]
-        )
-
+        macd = MACD(df["close"])
         df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
 
-        df["macd_signal"] = (
-            macd.macd_signal()
-        )
-
-        # ADX
-        adx = ADXIndicator(
-            high=df["high"],
-            low=df["low"],
-            close=df["close"]
-        )
-
+        adx = ADXIndicator(df["high"], df["low"], df["close"])
         df["adx"] = adx.adx()
 
-        # Bollinger Bands
-        bb = BollingerBands(
-            close=df["close"]
-        )
+        bb = BollingerBands(df["close"])
+        df["bb_high"] = bb.bollinger_hband()
+        df["bb_low"] = bb.bollinger_lband()
 
-        df["bb_high"] = (
-            bb.bollinger_hband()
-        )
-
-        df["bb_low"] = (
-            bb.bollinger_lband()
-        )
-
-        # Stochastic
-        stoch = StochasticOscillator(
-            high=df["high"],
-            low=df["low"],
-            close=df["close"]
-        )
-
-        df["stoch"] = (
-            stoch.stoch()
-        )
+        stoch = StochasticOscillator(df["high"], df["low"], df["close"])
+        df["stoch"] = stoch.stoch()
 
         return df
 
     except Exception as e:
-
-        print(
-            f"Indicator error: {e}"
-        )
-
+        print(f"Indicator error: {e}")
         return df
 
-# =========================
+
+# ======================
 # SIGNAL ENGINE
-# =========================
+# ======================
 
 def analyze_pair(symbol):
-
     df = get_market_data(symbol)
 
     if df.empty:
@@ -297,7 +230,7 @@ def analyze_pair(symbol):
         prev3_close = float(prev3["close"])
         prev3_open = float(prev3["open"])
 
-    except:
+    except Exception:
         return None
 
     candles = [
@@ -313,170 +246,94 @@ def analyze_pair(symbol):
     last_green = close > open_price
     last_red = close < open_price
 
-    higher_close = (
-        close > prev_close and
-        prev_close > prev2_close
-    )
-
-    lower_close = (
-        close < prev_close and
-        prev_close < prev2_close
-    )
-
-    # =====================
-    # CALL OTC
-    # =====================
+    higher_close = close > prev_close > prev2_close
+    lower_close = close < prev_close < prev2_close
 
     call_score = 0
 
     if green_count >= 3:
         call_score += 2
-
     if last_green:
         call_score += 1
-
     if higher_close:
         call_score += 2
-
     if 45 <= rsi <= 68:
         call_score += 1
-
-    if adx >= 18:
+    if adx >= 20:
         call_score += 1
-
-    # =====================
-    # PUT OTC
-    # =====================
 
     put_score = 0
 
     if red_count >= 3:
         put_score += 2
-
     if last_red:
         put_score += 1
-
     if lower_close:
         put_score += 2
-
     if 32 <= rsi <= 55:
         put_score += 1
-
-    if adx >= 18:
+    if adx >= 20:
         put_score += 1
 
     if call_score >= put_score and call_score >= 5:
-
         return {
             "symbol": symbol,
             "signal": "CALL",
             "score": call_score,
             "rsi": round(rsi, 1),
-            "adx": round(adx, 1)
+            "adx": round(adx, 1),
         }
 
     if put_score > call_score and put_score >= 5:
-
         return {
             "symbol": symbol,
             "signal": "PUT",
             "score": put_score,
             "rsi": round(rsi, 1),
-            "adx": round(adx, 1)
+            "adx": round(adx, 1),
         }
 
     return None
-# =========================
-# SIGNAL STRENGTH
-# =========================
+
+
+# ======================
+# SIGNAL MESSAGE
+# ======================
 
 def build_signal_message(signal_data):
-
     if signal_data is None:
-
         return "⚪ Сигнал не найден"
 
     signal = signal_data["signal"]
-
-    symbol = (
-        signal_data["symbol"]
-        .replace("=X", "")
-    )
-
-    rsi = signal_data["rsi"]
-    adx = signal_data["adx"]
-
+    symbol = signal_data["symbol"].replace("=X", "")
     score = signal_data["score"]
 
-    # ======================
-    # RATING
-    # ======================
+    rating = 150 if score >= 7 else 125
+    title = "🔥 VIP SIGNAL" if rating == 150 else "✅ HIGH QUALITY"
+    quality = "🔥 STRONG SIGNAL" if rating == 150 else "✅ QUALITY SIGNAL"
+    emoji = "🟢" if signal == "CALL" else "🔴"
 
-    if score >= 7:
-
-        rating = 150
-
-        title = (
-            "🔥 VIP SIGNAL"
-        )
-
-        quality = (
-            "🔥 STRONG SIGNAL"
-        )
-
-    else:
-
-        rating = 125
-
-        title = (
-            "✅ HIGH QUALITY"
-        )
-
-        quality = (
-            "✅ QUALITY SIGNAL"
-        )
-
-    emoji = (
-        "🟢"
-        if signal == "CALL"
-        else "🔴"
-    )
-
-    message = (
-
+    return (
         f"{title}\n\n"
-
         f"{emoji} {signal}\n\n"
-
         f"{symbol}\n\n"
-
-        f"Рейтинг:\n"
-        f"{rating}%\n\n"
-
-        f"RSI: {rsi}\n"
-        f"ADX: {adx}\n\n"
-
-        f"⏱ Экспирация:\n"
-        f"{SELECTED_EXPIRATION}\n\n"
-
+        f"Рейтинг:\n{rating}%\n\n"
+        f"RSI: {signal_data['rsi']}\n"
+        f"ADX: {signal_data['adx']}\n\n"
+        f"⏱ Экспирация:\n{SELECTED_EXPIRATION}\n\n"
         f"{quality}"
-
     )
 
-    return message
-# =========================
+
+# ======================
 # SCANNER
-# =========================
+# ======================
 
 def scan_market():
-
     global current_pair_index
     global pair_cache
 
-    signals = []
-
     if SELECTED_PAIR == "ALL":
-
         symbol = SIGNAL_PAIRS[current_pair_index]
 
         current_pair_index += 1
@@ -484,156 +341,55 @@ def scan_market():
         if current_pair_index >= len(SIGNAL_PAIRS):
             current_pair_index = 0
 
-        signal_data = analyze_pair(symbol)
-
-        pair_cache[symbol] = {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "signal": signal_data
-        }
-
     else:
-
         symbol = SELECTED_PAIR
 
-        signal_data = analyze_pair(symbol)
+    signal_data = analyze_pair(symbol)
 
-        pair_cache[symbol] = {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "signal": signal_data
-        }
+    pair_cache[symbol] = {
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "signal": signal_data,
+    }
 
-    for symbol, data in pair_cache.items():
+    signals = []
 
+    for _, data in pair_cache.items():
         if data.get("signal"):
-
-            signals.append(
-                data["signal"]
-            )
+            signals.append(data["signal"])
 
     return signals
-# =========================
-# AUTO SCANNER
-# =========================
 
-async def auto_scanner():
-
-    global sent_signals
-
-    while True:
-
-        if AUTO_SCAN_ENABLED and CHAT_ID:
-
-            try:
-
-                signals = scan_market()
-
-                for signal_data in signals:
-
-                    signal_id = (
-                        signal_data["symbol"]
-                        + signal_data["signal"]
-                    )
-
-                    if signal_id in sent_signals:
-                        continue
-
-                    sent_signals.add(
-                        signal_id
-                    )
-
-                    save_signal(signal_data)
-
-                    text = build_signal_message(
-                        signal_data
-                    )
-
-                    await bot.send_message(
-                        CHAT_ID,
-                        "🚨 Новый сигнал\n\n" + text
-                    )
-
-            except Exception as e:
-
-                print(
-                    f"Auto scanner error: {e}"
-                )
-
-        # каждые 8 секунд новая пара
-        await asyncio.sleep(9)
-# =========================
-# BEST SIGNAL
-# =========================
 
 def get_best_signal():
-
     signals = scan_market()
 
     if not signals:
         return None
 
-    signals = sorted(
-        signals,
-        key=lambda x: x["score"],
-        reverse=True
-    )
+    return sorted(signals, key=lambda x: x["score"], reverse=True)[0]
 
-    return signals[0]
-# =========================
-# TOP-3 SIGNALS
-# =========================
 
 def get_top3_signals():
-
     signals = scan_market()
 
     if not signals:
         return []
 
-    signals = sorted(
-        signals,
-        key=lambda x: x["score"],
-        reverse=True
-    )
+    return sorted(signals, key=lambda x: x["score"], reverse=True)[:3]
 
-    return signals[:3]
-# =========================
-# STATISTICS
-# =========================
 
-stats = {
-
-    "total_signals": 0,
-
-    "call_signals": 0,
-
-    "put_signals": 0,
-
-    "day_signals": 0,
-
-    "week_signals": 0,
-
-    "month_signals": 0
-
-}
-# =========================
-# SIGNAL HISTORY
-# =========================
-
-signal_history = []
-
+# ======================
+# HISTORY
+# ======================
 
 def save_signal(signal_data):
-    global signal_history
-    global stats
-
     now = datetime.now()
 
     item = {
         "time": now.strftime("%Y-%m-%d %H:%M:%S"),
-        "date": now.strftime("%Y-%m-%d"),
         "symbol": signal_data["symbol"].replace("=X", ""),
         "signal": signal_data["signal"],
-        "score": signal_data["score"] * 25,
+        "score": 150 if signal_data["score"] >= 7 else 125,
         "rsi": signal_data["rsi"],
         "adx": signal_data["adx"],
     }
@@ -647,78 +403,49 @@ def save_signal(signal_data):
 
     if signal_data["signal"] == "CALL":
         stats["call_signals"] += 1
-
-    if signal_data["signal"] == "PUT":
+    else:
         stats["put_signals"] += 1
 
-    return item
+
+# ======================
+# AUTO SCANNER
+# ======================
+
+async def auto_scanner():
+    global sent_signals
+
+    while True:
+        if AUTO_SCAN_ENABLED and CHAT_ID:
+            try:
+                signals = scan_market()
+
+                for signal_data in signals:
+                    signal_id = (
+                        signal_data["symbol"]
+                        + signal_data["signal"]
+                        + str(signal_data["score"])
+                    )
+
+                    if signal_id in sent_signals:
+                        continue
+
+                    sent_signals.add(signal_id)
+                    save_signal(signal_data)
+
+                    await bot.send_message(
+                        CHAT_ID,
+                        "🚨 Новый сигнал\n\n" + build_signal_message(signal_data)
+                    )
+
+            except Exception as e:
+                print(f"Auto scanner error: {e}")
+
+        await asyncio.sleep(10)
 
 
-def build_history_text(limit=10):
-    if not signal_history:
-        return "📜 История сигналов пуста"
-
-    text = "📜 Последние сигналы\n\n"
-
-    for item in signal_history[-limit:][::-1]:
-        emoji = "🟢" if item["signal"] == "CALL" else "🔴"
-
-        text += (
-            f"{item['time']}\n"
-            f"{emoji} {item['signal']} {item['symbol']}\n"
-            f"Сила: {item['score']}%\n"
-            f"RSI: {item['rsi']} | ADX: {item['adx']}\n\n"
-        )
-
-    return text
-# =========================
-# KEYBOARD
-# =========================
-
-pair_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="🌍 Все пары")
-        ],
-        [
-            KeyboardButton(text="EURUSD"),
-            KeyboardButton(text="EURJPY")
-        ],
-        [
-            KeyboardButton(text="GBPUSD"),
-            KeyboardButton(text="GBPJPY")
-        ],
-        [
-            KeyboardButton(text="USDJPY"),
-            KeyboardButton(text="USDCAD")
-        ],
-        [
-            KeyboardButton(text="⬅️ Назад")
-        ]
-    ],
-    resize_keyboard=True
-)
-
-expiration_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="⏱ 1 мин"),
-            KeyboardButton(text="⏱ 3 мин")
-        ],
-        [
-            KeyboardButton(text="⏱ 5 мин"),
-            KeyboardButton(text="⏱ 10 мин")
-        ],
-        [
-            KeyboardButton(text="⬅️ Назад")
-        ]
-    ],
-    resize_keyboard=True
-)
-
-# =========================
-# START
-# =========================
+# ======================
+# HANDLERS
+# ======================
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
@@ -727,54 +454,53 @@ async def start_command(message: types.Message):
     CHAT_ID = message.chat.id
 
     await message.answer(
-
         "📈 Binarium Signal Bot\n\n"
         f"Режим: {MODE}\n"
         f"Автосканирование: {'🟢 ВКЛ' if AUTO_SCAN_ENABLED else '🔴 ВЫКЛ'}\n"
         f"Интервал: {AUTO_INTERVAL} сек.",
-
         reply_markup=keyboard
-
     )
 
-@dp.message(lambda message: message.text == "🔍 Сканер")
+
+@dp.message(lambda message: message.text == "📊 Статус")
+async def status_button(message: types.Message):
+    await message.answer(
+        "📊 Binarium Signal Bot\n\n"
+        f"Режим: {MODE}\n\n"
+        f"Экспирация:\n{SELECTED_EXPIRATION}\n\n"
+        f"Выбранная пара:\n{PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}\n\n"
+        f"Автосканирование:\n{'🟢 ВКЛ' if AUTO_SCAN_ENABLED else '🔴 ВЫКЛ'}\n\n"
+        f"Интервал:\n{AUTO_INTERVAL} сек.\n\n"
+        f"Всего пар:\n{len(SIGNAL_PAIRS)}"
+    )
+
+
+@dp.message(lambda message: message.text in ["🔎 Сканер", "🔍 Сканер"])
 async def scanner_button(message: types.Message):
-
     if not pair_cache:
-
         await message.answer(
             "⏳ Данных пока нет.\n\n"
             "Подожди 1–2 минуты, бот по очереди проверяет пары."
         )
-
         return
 
-    signals = []
-
-    text = "🔍 Сканер рынка\n\n"
+    text = "🔎 Сканер рынка\n\n"
 
     for symbol, data in pair_cache.items():
-
         signal_data = data.get("signal")
         check_time = data.get("time", "—")
-
         name = symbol.replace("=X", "")
 
         if signal_data:
-
-            signals.append(signal_data)
-
             rating = 150 if signal_data["score"] >= 7 else 125
+            emoji = "🟢" if signal_data["signal"] == "CALL" else "🔴"
 
             text += (
-                f"{'🟢' if signal_data['signal'] == 'CALL' else '🔴'} "
-                f"{signal_data['signal']} {name}\n"
+                f"{emoji} {signal_data['signal']} {name}\n"
                 f"Рейтинг: {rating}%\n"
                 f"Обновлено: {check_time}\n\n"
             )
-
         else:
-
             text += (
                 f"⚪ {name}\n"
                 f"Сигнала нет\n"
@@ -782,161 +508,40 @@ async def scanner_button(message: types.Message):
             )
 
     await message.answer(text)
-    
+
+
 @dp.message(lambda message: message.text == "🏆 Лучшая")
 async def best_signal_button(message: types.Message):
-
     signal_data = get_best_signal()
 
     if signal_data is None:
-
-        await message.answer(
-            "⚪ Сигналы не найдены"
-        )
-
+        await message.answer("⚪ Сигналы не найдены")
         return
 
-    text = build_signal_message(
-        signal_data
-    )
+    await message.answer("🏆 Лучший сигнал\n\n" + build_signal_message(signal_data))
 
-    await message.answer(
-        "🏆 Лучший сигнал\n\n" + text
-    )
 
 @dp.message(lambda message: message.text == "🥇 Топ-3")
 async def top3_button(message: types.Message):
-
     signals = get_top3_signals()
 
-    if len(signals) == 0:
-
-        await message.answer(
-            "⚪ Сигналы не найдены"
-        )
-
+    if not signals:
+        await message.answer("⚪ Сигналы не найдены")
         return
 
     text = "🥇 ТОП-3 сигнала\n\n"
 
     for i, signal in enumerate(signals, start=1):
-
         symbol = signal["symbol"].replace("=X", "")
+        rating = 150 if signal["score"] >= 7 else 125
+        emoji = "🟢" if signal["signal"] == "CALL" else "🔴"
 
         text += (
-            f"{i}. "
-            f"{'🟢' if signal['signal']=='CALL' else '🔴'} "
-            f"{signal['signal']} "
-            f"{symbol}\n"
-            f"Сила: {signal['score']*25}%\n\n"
+            f"{i}. {emoji} {signal['signal']} {symbol}\n"
+            f"Рейтинг: {rating}%\n\n"
         )
 
     await message.answer(text)
-@dp.message(lambda message: message.text == "📊 Статус")
-async def status_button(message: types.Message):
-
-    await message.answer(
-
-        "📊 Binarium Signal Bot\n\n"
-
-        f"Режим: {MODE}\n\n"
-
-        f"Экспирация:\n"
-        f"{SELECTED_EXPIRATION}\n\n"
-
-        f"Выбранная пара:\n"
-        f"{PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}\n\n"
-
-        f"Автосканирование:\n"
-        f"{'🟢 ВКЛ' if AUTO_SCAN_ENABLED else '🔴 ВЫКЛ'}\n\n"
-
-        f"Интервал:\n"
-        f"{AUTO_INTERVAL} сек.\n\n"
-
-        f"Всего пар:\n"
-        f"{len(SIGNAL_PAIRS)}"
-
-    )
-
-
-@dp.message(lambda message: message.text == "📈 Статистика")
-async def statistics_button(message: types.Message):
-
-    await message.answer(
-
-        "📈 Статистика\n\n"
-
-        f"Всего сигналов:\n"
-        f"{stats['total_signals']}\n\n"
-
-        f"CALL:\n"
-        f"{stats['call_signals']}\n\n"
-
-        f"PUT:\n"
-        f"{stats['put_signals']}"
-
-    )
-
-
-@dp.message(lambda message: message.text == "📅 День")
-async def day_button(message: types.Message):
-
-    await message.answer(
-
-        "📅 Сегодня\n\n"
-
-        f"Сигналов:\n"
-        f"{stats['day_signals']}"
-
-    )
-
-
-@dp.message(lambda message: message.text == "🗓 Неделя")
-async def week_button(message: types.Message):
-
-    await message.answer(
-
-        "🗓 Неделя\n\n"
-
-        f"Сигналов:\n"
-        f"{stats['week_signals']}"
-
-    )
-
-
-@dp.message(lambda message: message.text == "📆 Месяц")
-async def month_button(message: types.Message):
-
-    await message.answer(
-
-        "📆 Месяц\n\n"
-
-        f"Сигналов:\n"
-        f"{stats['month_signals']}"
-
-    )
-@dp.message(lambda message: message.text == "🟢 Авто ВКЛ")
-async def auto_on(message: types.Message):
-
-    global AUTO_SCAN_ENABLED
-
-    AUTO_SCAN_ENABLED = True
-
-    await message.answer(
-        "🟢 Автосканирование включено"
-    )
-
-
-@dp.message(lambda message: message.text == "🔴 Авто ВЫКЛ")
-async def auto_off(message: types.Message):
-
-    global AUTO_SCAN_ENABLED
-
-    AUTO_SCAN_ENABLED = False
-
-    await message.answer(
-        "🔴 Автосканирование выключено"
-    )
 
 
 @dp.message(lambda message: message.text == "⏱ Экспирация")
@@ -974,22 +579,21 @@ async def pair_menu(message: types.Message):
     "GBPUSD",
     "GBPJPY",
     "USDJPY",
-    "USDCAD"
+    "USDCAD",
 ])
 async def set_pair(message: types.Message):
-
     global SELECTED_PAIR
-    global sent_signals
     global pair_cache
     global current_pair_index
+    global sent_signals
 
     if message.text == "🌍 Все пары":
         SELECTED_PAIR = "ALL"
     else:
         SELECTED_PAIR = f"{message.text}=X"
 
-    sent_signals.clear()
     pair_cache.clear()
+    sent_signals.clear()
     current_pair_index = 0
 
     await message.answer(
@@ -998,25 +602,60 @@ async def set_pair(message: types.Message):
     )
 
 
-@dp.message(lambda message: message.text == "⬅️ Назад")
-async def back_to_main_menu(message: types.Message):
+@dp.message(lambda message: message.text == "📈 Статистика")
+async def statistics_button(message: types.Message):
     await message.answer(
-        "Главное меню",
-        reply_markup=keyboard
+        "📈 Статистика\n\n"
+        f"Всего сигналов: {stats['total_signals']}\n"
+        f"CALL: {stats['call_signals']}\n"
+        f"PUT: {stats['put_signals']}"
     )
-    
-# =========================
+
+
+@dp.message(lambda message: message.text == "📅 День")
+async def day_button(message: types.Message):
+    await message.answer(f"📅 Сегодня\n\nСигналов: {stats['day_signals']}")
+
+
+@dp.message(lambda message: message.text == "🗓 Неделя")
+async def week_button(message: types.Message):
+    await message.answer(f"🗓 Неделя\n\nСигналов: {stats['week_signals']}")
+
+
+@dp.message(lambda message: message.text == "📆 Месяц")
+async def month_button(message: types.Message):
+    await message.answer(f"📆 Месяц\n\nСигналов: {stats['month_signals']}")
+
+
+@dp.message(lambda message: message.text == "🟢 Авто ВКЛ")
+async def auto_on(message: types.Message):
+    global AUTO_SCAN_ENABLED
+
+    AUTO_SCAN_ENABLED = True
+    await message.answer("🟢 Автосканирование включено", reply_markup=keyboard)
+
+
+@dp.message(lambda message: message.text == "🔴 Авто ВЫКЛ")
+async def auto_off(message: types.Message):
+    global AUTO_SCAN_ENABLED
+
+    AUTO_SCAN_ENABLED = False
+    await message.answer("🔴 Автосканирование выключено", reply_markup=keyboard)
+
+
+@dp.message(lambda message: message.text == "⬅️ Назад")
+async def back_button(message: types.Message):
+    await message.answer("Главное меню", reply_markup=keyboard)
+
+
+# ======================
 # MAIN
-# =========================
+# ======================
 
 async def main():
-
-    asyncio.create_task(
-        auto_scanner()
-    )
-
+    asyncio.create_task(auto_scanner())
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     asyncio.run(main())
