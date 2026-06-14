@@ -299,7 +299,6 @@ def analyze_pair(symbol):
     prev3 = df.iloc[-4]
 
     try:
-
         rsi = float(last["rsi"])
         adx = float(last["adx"])
 
@@ -316,7 +315,6 @@ def analyze_pair(symbol):
         prev3_open = float(prev3["open"])
 
     except Exception:
-
         return None
 
     candles = [
@@ -326,76 +324,46 @@ def analyze_pair(symbol):
         (open_price, close),
     ]
 
-    green_count = sum(
-        1 for o, c in candles if c > o
-    )
-
-    red_count = sum(
-        1 for o, c in candles if c < o
-    )
+    green_count = sum(1 for o, c in candles if c > o)
+    red_count = sum(1 for o, c in candles if c < o)
 
     last_green = close > open_price
     last_red = close < open_price
 
-    higher_close = (
-        close > prev_close > prev2_close
-    )
-
-    lower_close = (
-        close < prev_close < prev2_close
-    )
-
     call_score = 0
     put_score = 0
-# ======================
-# CALL LOGIC
-# ======================
 
-call_score = 0
+    if green_count >= 2:
+        call_score += 2
 
-if green_count >= 2:
-    call_score += 2
+    if last_green:
+        call_score += 1
 
-if last_green:
-    call_score += 1
+    if close > prev_close:
+        call_score += 1
 
-if close > prev_close:
-    call_score += 1
+    if rsi > 45:
+        call_score += 1
 
-if rsi > 45:
-    call_score += 1
+    if adx > 10:
+        call_score += 1
 
-if adx > 10:
-    call_score += 1
+    if red_count >= 2:
+        put_score += 2
 
+    if last_red:
+        put_score += 1
 
-# ======================
-# PUT LOGIC
-# ======================
+    if close < prev_close:
+        put_score += 1
 
-put_score = 0
+    if rsi < 55:
+        put_score += 1
 
-if red_count >= 2:
-    put_score += 2
+    if adx > 10:
+        put_score += 1
 
-if last_red:
-    put_score += 1
-
-if close < prev_close:
-    put_score += 1
-
-if rsi < 55:
-    put_score += 1
-
-if adx > 10:
-    put_score += 1
-
-    # =====================
-    # DECISION
-    # =====================
-
-    if call_score >= put_score and call_score >= 3:
-
+    if call_score > put_score and call_score >= 3:
         return {
             "symbol": symbol,
             "signal": "CALL",
@@ -405,7 +373,6 @@ if adx > 10:
         }
 
     if put_score > call_score and put_score >= 3:
-
         return {
             "symbol": symbol,
             "signal": "PUT",
