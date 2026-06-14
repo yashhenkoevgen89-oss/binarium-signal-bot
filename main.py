@@ -70,26 +70,20 @@ EXPIRATIONS = [
 PAIR_NAMES = {
     "ALL": "🌍 Все пары",
     "EURUSD=X": "EURUSD",
-    "GBPUSD=X": "GBPUSD",
-    "USDJPY=X": "USDJPY",
-    "AUDUSD=X": "AUDUSD",
-    "USDCAD=X": "USDCAD",
-    "NZDUSD=X": "NZDUSD",
     "EURJPY=X": "EURJPY",
+    "GBPUSD=X": "GBPUSD",
     "GBPJPY=X": "GBPJPY",
+    "USDJPY=X": "USDJPY",
+    "USDCAD=X": "USDCAD",
 }
 
 SIGNAL_PAIRS = [
-
     "EURUSD=X",
-    "GBPUSD=X",
-    "USDJPY=X",
-    "AUDUSD=X",
-    "USDCAD=X",
-    "NZDUSD=X",
     "EURJPY=X",
-    "GBPJPY=X"
-
+    "GBPUSD=X",
+    "GBPJPY=X",
+    "USDJPY=X",
+    "USDCAD=X",
 ]
 # =========================
 # MARKET DATA - TWELVEDATA
@@ -108,14 +102,14 @@ def convert_symbol(symbol):
 
     mapping = {
         "EURUSD=X": "EUR/USD",
-        "GBPUSD=X": "GBP/USD",
-        "USDJPY=X": "USD/JPY",
-        "AUDUSD=X": "AUD/USD",
-        "USDCAD=X": "USD/CAD",
-        "NZDUSD=X": "NZD/USD",
         "EURJPY=X": "EUR/JPY",
+        "GBPUSD=X": "GBP/USD",
         "GBPJPY=X": "GBP/JPY",
+        "USDJPY=X": "USD/JPY",
+        "USDCAD=X": "USD/CAD",
     }
+
+    return mapping.get(symbol, symbol)
 
     return mapping.get(symbol, symbol)
 
@@ -681,31 +675,25 @@ def build_history_text(limit=10):
 # KEYBOARD
 # =========================
 
-keyboard = ReplyKeyboardMarkup(
+pair_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="📊 Статус"),
-            KeyboardButton(text="🔍 Сканер")
+            KeyboardButton(text="🌍 Все пары")
         ],
         [
-            KeyboardButton(text="🏆 Лучшая"),
-            KeyboardButton(text="🥇 Топ-3")
+            KeyboardButton(text="EURUSD"),
+            KeyboardButton(text="EURJPY")
         ],
         [
-            KeyboardButton(text="⏱ Экспирация"),
-            KeyboardButton(text="💱 Пара")
+            KeyboardButton(text="GBPUSD"),
+            KeyboardButton(text="GBPJPY")
         ],
         [
-            KeyboardButton(text="📈 Статистика"),
-            KeyboardButton(text="📅 День")
+            KeyboardButton(text="USDJPY"),
+            KeyboardButton(text="USDCAD")
         ],
         [
-            KeyboardButton(text="🗓 Неделя"),
-            KeyboardButton(text="📆 Месяц")
-        ],
-        [
-            KeyboardButton(text="🟢 Авто ВКЛ"),
-            KeyboardButton(text="🔴 Авто ВЫКЛ")
+            KeyboardButton(text="⬅️ Назад")
         ]
     ],
     resize_keyboard=True
@@ -1010,17 +998,18 @@ async def pair_menu(message: types.Message):
 @dp.message(lambda message: message.text in [
     "🌍 Все пары",
     "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "AUDUSD",
-    "USDCAD",
-    "NZDUSD",
     "EURJPY",
-    "GBPJPY"
+    "GBPUSD",
+    "GBPJPY",
+    "USDJPY",
+    "USDCAD"
 ])
 async def set_pair(message: types.Message):
+
     global SELECTED_PAIR
     global sent_signals
+    global pair_cache
+    global current_pair_index
 
     if message.text == "🌍 Все пары":
         SELECTED_PAIR = "ALL"
@@ -1028,6 +1017,8 @@ async def set_pair(message: types.Message):
         SELECTED_PAIR = f"{message.text}=X"
 
     sent_signals.clear()
+    pair_cache.clear()
+    current_pair_index = 0
 
     await message.answer(
         f"✅ Выбранная пара: {PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}",
