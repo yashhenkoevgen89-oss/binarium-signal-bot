@@ -331,39 +331,47 @@ def analyze_pair(symbol):
     last_red = close < open_price
 
     call_score = 0
-    put_score = 0
+put_score = 0
 
-    if green_count >= 2:
-        call_score += 2
+# ===== CALL =====
 
-    if last_green:
-        call_score += 1
+if green_count >= 2:
+    call_score += 2
 
-    if close > prev_close:
-        call_score += 1
+if last_green:
+    call_score += 1
 
-    if rsi > 45:
-        call_score += 1
+if close > prev_close:
+    call_score += 1
 
-    if adx > 10:
-        call_score += 1
+if rsi > 45:
+    call_score += 1
 
-    if red_count >= 2:
-        put_score += 2
+if adx > 10:
+    call_score += 1
 
-    if last_red:
-        put_score += 1
 
-    if close < prev_close:
-        put_score += 1
+# ===== PUT =====
 
-    if rsi < 55:
-        put_score += 1
+if red_count >= 2:
+    put_score += 2
 
-    if adx > 10:
-        put_score += 1
+if last_red:
+    put_score += 1
 
-    if call_score >= 3 or put_score >= 3:
+if close < prev_close:
+    put_score += 1
+
+if rsi < 55:
+    put_score += 1
+
+if adx > 10:
+    put_score += 1
+
+
+# ===== RESULT =====
+
+if call_score >= 3 or put_score >= 3:
 
     if call_score > put_score:
         direction = "CALL"
@@ -374,12 +382,15 @@ def analyze_pair(symbol):
         final_score = put_score
 
     else:
+
         if last_green:
             direction = "CALL"
             final_score = call_score
+
         elif last_red:
             direction = "PUT"
             final_score = put_score
+
         else:
             return None
 
@@ -393,6 +404,25 @@ def analyze_pair(symbol):
 
 return None
 
+    return {
+        "symbol": symbol,
+        "signal": direction,
+        "score": final_score,
+        "rsi": round(rsi, 1),
+        "adx": round(adx, 1),
+    }
+
+return None
+
+    return {
+        "symbol": symbol,
+        "signal": direction,
+        "score": final_score,
+        "rsi": round(rsi, 1),
+        "adx": round(adx, 1),
+    }
+
+return None
 
 # ======================
 # SIGNAL MESSAGE
