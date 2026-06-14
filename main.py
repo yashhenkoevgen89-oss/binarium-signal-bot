@@ -452,16 +452,24 @@ def build_signal_message(signal_data):
     )
 
     return (
+
         f"{title}\n\n"
         f"{emoji} {signal}\n\n"
         f"{symbol}\n\n"
+
         f"Рейтинг:\n"
         f"{rating}%\n\n"
+
         f"RSI: {signal_data['rsi']}\n"
         f"ADX: {signal_data['adx']}\n\n"
+
         f"⏱ Экспирация:\n"
         f"{SELECTED_EXPIRATION}\n\n"
-        f"{
+
+        f"{quality}"
+
+    )
+
             
 # ======================
 # SCANNER / CACHE
