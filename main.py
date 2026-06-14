@@ -363,25 +363,35 @@ def analyze_pair(symbol):
     if adx > 10:
         put_score += 1
 
-    if call_score > put_score and call_score >= 3:
-        return {
-            "symbol": symbol,
-            "signal": "CALL",
-            "score": call_score,
-            "rsi": round(rsi, 1),
-            "adx": round(adx, 1),
-        }
+    if call_score >= 3 or put_score >= 3:
 
-    if put_score > call_score and put_score >= 3:
-        return {
-            "symbol": symbol,
-            "signal": "PUT",
-            "score": put_score,
-            "rsi": round(rsi, 1),
-            "adx": round(adx, 1),
-        }
+    if call_score > put_score:
+        direction = "CALL"
+        final_score = call_score
 
-    return None
+    elif put_score > call_score:
+        direction = "PUT"
+        final_score = put_score
+
+    else:
+        if last_green:
+            direction = "CALL"
+            final_score = call_score
+        elif last_red:
+            direction = "PUT"
+            final_score = put_score
+        else:
+            return None
+
+    return {
+        "symbol": symbol,
+        "signal": direction,
+        "score": final_score,
+        "rsi": round(rsi, 1),
+        "adx": round(adx, 1),
+    }
+
+return None
 
 
 # ======================
