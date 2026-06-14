@@ -412,10 +412,6 @@ def save_signal(signal_data):
 # AUTO SCANNER
 # =========================
 
-SIGNAL_COOLDOWN_SECONDS = 300      # 5 минут
-last_signal_time = {}
-
-
 async def auto_scanner():
 
     global last_signal_time
@@ -434,7 +430,7 @@ async def auto_scanner():
 
                     now = datetime.now()
 
-                    # Проверяем, был ли недавно сигнал по этой паре
+                    # защита от повторных сигналов
                     if symbol in last_signal_time:
 
                         seconds_passed = (
@@ -444,7 +440,7 @@ async def auto_scanner():
                         if seconds_passed < SIGNAL_COOLDOWN_SECONDS:
                             continue
 
-                    # Запоминаем время последнего сигнала
+                    # сохраняем время последнего сигнала
                     last_signal_time[symbol] = now
 
                     save_signal(signal_data)
@@ -464,7 +460,7 @@ async def auto_scanner():
                     f"Auto scanner error: {e}"
                 )
 
-        # каждые 9 секунд бот проверяет следующую пару
+        # проверка следующей пары
         await asyncio.sleep(9)
 
 
