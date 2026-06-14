@@ -285,20 +285,10 @@ def analyze_pair(symbol):
     last = df.iloc[-1]
     prev = df.iloc[-2]
     prev2 = df.iloc[-3]
+    prev3 = df.iloc[-4]
 
     try:
-        ema20 = float(last["ema20"])
-        ema50 = float(last["ema50"])
-        ema200 = float(last["ema200"])
-
-        prev_ema20 = float(prev["ema20"])
-        prev_ema50 = float(prev["ema50"])
-
         rsi = float(last["rsi"])
-
-        macd = float(last["macd"])
-        macd_signal = float(last["macd_signal"])
-
         adx = float(last["adx"])
 
         close = float(last["close"])
@@ -310,97 +300,78 @@ def analyze_pair(symbol):
         prev2_close = float(prev2["close"])
         prev2_open = float(prev2["open"])
 
-        bb_high = float(last["bb_high"])
-        bb_low = float(last["bb_low"])
-
-        stoch = float(last["stoch"])
+        prev3_close = float(prev3["close"])
+        prev3_open = float(prev3["open"])
 
     except:
         return None
 
-    # =====================
-    # OTC FILTER
-    # =====================
+    candles = [
+        (prev3_open, prev3_close),
+        (prev2_open, prev2_close),
+        (prev_open, prev_close),
+        (open_price, close),
+    ]
 
-    if adx < 18:
-        return None
+    green_count = sum(1 for o, c in candles if c > o)
+    red_count = sum(1 for o, c in candles if c < o)
 
     last_green = close > open_price
     last_red = close < open_price
 
-    prev_green = prev_close > prev_open
-    prev_red = prev_close < prev_open
+    higher_close = (
+        close > prev_close and
+        prev_close > prev2_close
+    )
 
-    prev2_green = prev2_close > prev2_open
-    prev2_red = prev2_close < prev2_open
+    lower_close = (
+        close < prev_close and
+        prev_close < prev2_close
+    )
 
     # =====================
-    # CALL
+    # CALL OTC
     # =====================
 
     call_score = 0
 
-    if ema20 > ema50:
+    if green_count >= 3:
+        call_score += 2
+
+    if last_green:
         call_score += 1
 
-    if ema20 > prev_ema20:
-        call_score += 1
-
-    if ema50 >= prev_ema50:
-        call_score += 1
-
-    if macd > macd_signal:
+    if higher_close:
         call_score += 2
 
     if 45 <= rsi <= 68:
         call_score += 1
 
-    if last_green:
-        call_score += 1
-
-    if prev_green or prev2_green:
-        call_score += 1
-
-    if close < bb_high:
-        call_score += 1
-
-    if stoch < 85:
+    if adx >= 18:
         call_score += 1
 
     # =====================
-    # PUT
+    # PUT OTC
     # =====================
 
     put_score = 0
 
-    if ema20 < ema50:
+    if red_count >= 3:
+        put_score += 2
+
+    if last_red:
         put_score += 1
 
-    if ema20 < prev_ema20:
-        put_score += 1
-
-    if ema50 <= prev_ema50:
-        put_score += 1
-
-    if macd < macd_signal:
+    if lower_close:
         put_score += 2
 
     if 32 <= rsi <= 55:
         put_score += 1
 
-    if last_red:
+    if adx >= 18:
         put_score += 1
 
-    if prev_red or prev2_red:
-        put_score += 1
-
-    if close > bb_low:
-        put_score += 1
-
-    if stoch > 15:
-        put_score += 1
-
-    if call_score >= put_score and call_score >= 6:
+    if call_score >= put_score and call_score >= 5:
 
         return {
             "symbol": symbol,
@@ -410,7 +381,7 @@ def analyze_pair(symbol):
             "adx": round(adx, 1)
         }
 
-    if put_score > call_score and put_score >= 6:
+    if put_score > call_score and put_score >= 5:
 
         return {
             "symbol": symbol,
