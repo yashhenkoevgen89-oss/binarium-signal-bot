@@ -284,11 +284,13 @@ def add_indicators(df):
 def analyze_pair(symbol):
 
     df = get_market_data(symbol)
+    print(symbol, "rows:", len(df), "empty:", df.empty)
 
     if df.empty:
         return None
 
     df = add_indicators(df)
+    print(symbol, df.tail(1).to_dict("records"))
 
     if len(df) < 210:
         return None
