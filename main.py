@@ -83,7 +83,7 @@ SIGNAL_PAIRS = [
     "GBPUSD=X",
     "GBPJPY=X",
     "USDJPY=X",
-    "USDCAD=X",
+    "USDCAD=X"
 ]
 # =========================
 # MARKET DATA - TWELVEDATA
