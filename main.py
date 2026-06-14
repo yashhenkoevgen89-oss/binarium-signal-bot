@@ -284,6 +284,7 @@ def analyze_pair(symbol):
 
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    prev2 = df.iloc[-3]
 
     try:
         ema20 = float(last["ema20"])
@@ -303,6 +304,12 @@ def analyze_pair(symbol):
         close = float(last["close"])
         open_price = float(last["open"])
 
+        prev_close = float(prev["close"])
+        prev_open = float(prev["open"])
+
+        prev2_close = float(prev2["close"])
+        prev2_open = float(prev2["open"])
+
         bb_high = float(last["bb_high"])
         bb_low = float(last["bb_low"])
 
@@ -311,9 +318,21 @@ def analyze_pair(symbol):
     except:
         return None
 
-    # ADX ниже 20 = слабый рынок, сигнал запрещен
-    if adx < 20:
+    # =====================
+    # OTC FILTER
+    # =====================
+
+    if adx < 18:
         return None
+
+    last_green = close > open_price
+    last_red = close < open_price
+
+    prev_green = prev_close > prev_open
+    prev_red = prev_close < prev_open
+
+    prev2_green = prev2_close > prev2_open
+    prev2_red = prev2_close < prev2_open
 
     # =====================
     # CALL
@@ -324,22 +343,22 @@ def analyze_pair(symbol):
     if ema20 > ema50:
         call_score += 1
 
-    if ema50 > ema200:
-        call_score += 1
-
     if ema20 > prev_ema20:
         call_score += 1
 
-    if ema50 > prev_ema50:
+    if ema50 >= prev_ema50:
         call_score += 1
 
     if macd > macd_signal:
         call_score += 2
 
-    if 45 <= rsi <= 70:
+    if 45 <= rsi <= 68:
         call_score += 1
 
-    if close > open_price:
+    if last_green:
+        call_score += 1
+
+    if prev_green or prev2_green:
         call_score += 1
 
     if close < bb_high:
@@ -357,22 +376,22 @@ def analyze_pair(symbol):
     if ema20 < ema50:
         put_score += 1
 
-    if ema50 < ema200:
-        put_score += 1
-
     if ema20 < prev_ema20:
         put_score += 1
 
-    if ema50 < prev_ema50:
+    if ema50 <= prev_ema50:
         put_score += 1
 
     if macd < macd_signal:
         put_score += 2
 
-    if 30 <= rsi <= 55:
+    if 32 <= rsi <= 55:
         put_score += 1
 
-    if close < open_price:
+    if last_red:
+        put_score += 1
+
+    if prev_red or prev2_red:
         put_score += 1
 
     if close > bb_low:
