@@ -382,26 +382,6 @@ def analyze_pair(symbol):
 
     return None
 
-    return {
-        "symbol": symbol,
-        "signal": direction,
-        "score": final_score,
-        "rsi": round(rsi, 1),
-        "adx": round(adx, 1),
-    }
-
-return None
-
-    return {
-        "symbol": symbol,
-        "signal": direction,
-        "score": final_score,
-        "rsi": round(rsi, 1),
-        "adx": round(adx, 1),
-    }
-
-return None
-
 # ======================
 # SIGNAL MESSAGE
 # ======================
