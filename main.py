@@ -716,34 +716,6 @@ expiration_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-pair_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="🌍 Все пары")
-        ],
-        [
-            KeyboardButton(text="EURUSD"),
-            KeyboardButton(text="GBPUSD")
-        ],
-        [
-            KeyboardButton(text="USDJPY"),
-            KeyboardButton(text="AUDUSD")
-        ],
-        [
-            KeyboardButton(text="USDCAD"),
-            KeyboardButton(text="NZDUSD")
-        ],
-        [
-            KeyboardButton(text="EURJPY"),
-            KeyboardButton(text="GBPJPY")
-        ],
-        [
-            KeyboardButton(text="⬅️ Назад")
-        ]
-    ],
-    resize_keyboard=True
-)
-
 # =========================
 # START
 # =========================
