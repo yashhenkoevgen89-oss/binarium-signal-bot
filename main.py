@@ -390,7 +390,7 @@ def analyze_pair(symbol):
     # DECISION
     # =====================
 
-    if call_score >= put_score and call_score >= 4:
+    if call_score >= put_score and call_score >= 3:
 
         return {
             "symbol": symbol,
@@ -400,7 +400,7 @@ def analyze_pair(symbol):
             "adx": round(adx, 1),
         }
 
-    if put_score > call_score and put_score >= 4:
+    if put_score > call_score and put_score >= 3:
 
         return {
             "symbol": symbol,
