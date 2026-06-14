@@ -59,9 +59,11 @@ PAIR_NAMES = {
 
 pair_cache = {}
 current_pair_index = 0
-sent_signals = set()
-signal_history = []
 
+SIGNAL_COOLDOWN_SECONDS = 300
+last_signal_time = {}
+
+signal_history = []
 stats = {
     "total_signals": 0,
     "call_signals": 0,
@@ -404,43 +406,66 @@ def save_signal(signal_data):
     if signal_data["signal"] == "CALL":
         stats["call_signals"] += 1
     else:
-        stats["put_signals"] += 1
-
-
-# ======================
+        stats["put_signals"] += 
+        
+# =========================
 # AUTO SCANNER
-# ======================
+# =========================
+
+SIGNAL_COOLDOWN_SECONDS = 300      # 5 минут
+last_signal_time = {}
+
 
 async def auto_scanner():
-    global sent_signals
+
+    global last_signal_time
 
     while True:
+
         if AUTO_SCAN_ENABLED and CHAT_ID:
+
             try:
+
                 signals = scan_market()
 
                 for signal_data in signals:
-                    signal_id = (
-                        signal_data["symbol"]
-                        + signal_data["signal"]
-                        + str(signal_data["score"])
-                    )
 
-                    if signal_id in sent_signals:
-                        continue
+                    symbol = signal_data["symbol"]
 
-                    sent_signals.add(signal_id)
+                    now = datetime.now()
+
+                    # Проверяем, был ли недавно сигнал по этой паре
+                    if symbol in last_signal_time:
+
+                        seconds_passed = (
+                            now - last_signal_time[symbol]
+                        ).total_seconds()
+
+                        if seconds_passed < SIGNAL_COOLDOWN_SECONDS:
+                            continue
+
+                    # Запоминаем время последнего сигнала
+                    last_signal_time[symbol] = now
+
                     save_signal(signal_data)
+
+                    text = build_signal_message(
+                        signal_data
+                    )
 
                     await bot.send_message(
                         CHAT_ID,
-                        "🚨 Новый сигнал\n\n" + build_signal_message(signal_data)
+                        "🚨 Новый сигнал\n\n" + text
                     )
 
             except Exception as e:
-                print(f"Auto scanner error: {e}")
 
-        await asyncio.sleep(10)
+                print(
+                    f"Auto scanner error: {e}"
+                )
+
+        # каждые 9 секунд бот проверяет следующую пару
+        await asyncio.sleep(9)
 
 
 # ======================
@@ -572,20 +597,21 @@ async def pair_menu(message: types.Message):
     )
 
 
-@dp.message(lambda message: message.text in [
+@dp.message(lambda message: message.text @dp.message(lambda message: message.text in [
     "🌍 Все пары",
     "EURUSD",
     "EURJPY",
     "GBPUSD",
     "GBPJPY",
     "USDJPY",
-    "USDCAD",
+    "USDCAD"
 ])
 async def set_pair(message: types.Message):
+
     global SELECTED_PAIR
     global pair_cache
     global current_pair_index
-    global sent_signals
+    global last_signal_time
 
     if message.text == "🌍 Все пары":
         SELECTED_PAIR = "ALL"
@@ -593,8 +619,8 @@ async def set_pair(message: types.Message):
         SELECTED_PAIR = f"{message.text}=X"
 
     pair_cache.clear()
-    sent_signals.clear()
     current_pair_index = 0
+    last_signal_time.clear()
 
     await message.answer(
         f"✅ Выбранная пара: {PAIR_NAMES.get(SELECTED_PAIR, SELECTED_PAIR)}",
