@@ -284,13 +284,11 @@ def add_indicators(df):
 def analyze_pair(symbol):
 
     df = get_market_data(symbol)
-    print(symbol, "rows:", len(df), "empty:", df.empty)
 
     if df.empty:
         return None
 
     df = add_indicators(df)
-    print(symbol, df.tail(1).to_dict("records"))
 
     if len(df) < 210:
         return None
@@ -332,52 +330,64 @@ def analyze_pair(symbol):
     last_green = close > open_price
     last_red = close < open_price
 
-    call_score = 0
-    put_score = 0
+    higher_close = (
+        close > prev_close and
+        prev_close > prev2_close
+    )
 
-    if green_count >= 2:
+    lower_close = (
+        close < prev_close and
+        prev_close < prev2_close
+    )
+
+    call_score = 0
+
+    if green_count >= 3:
         call_score += 2
+
     if last_green:
         call_score += 1
-    if close > prev_close:
-        call_score += 1
-    if rsi > 45:
-        call_score += 1
-    if adx > 10:
+
+    if higher_close:
+        call_score += 2
+
+    if 45 <= rsi <= 68:
         call_score += 1
 
-    if red_count >= 2:
+    if adx >= 18:
+        call_score += 1
+
+    put_score = 0
+
+    if red_count >= 3:
         put_score += 2
+
     if last_red:
         put_score += 1
-    if close < prev_close:
-        put_score += 1
-    if rsi < 55:
-        put_score += 1
-    if adx > 10:
+
+    if lower_close:
+        put_score += 2
+
+    if 32 <= rsi <= 55:
         put_score += 1
 
-    if call_score >= 3 or put_score >= 3:
-        if call_score > put_score:
-            direction = "CALL"
-            final_score = call_score
-        elif put_score > call_score:
-            direction = "PUT"
-            final_score = put_score
-        else:
-            if last_green:
-                direction = "CALL"
-                final_score = call_score
-            elif last_red:
-                direction = "PUT"
-                final_score = put_score
-            else:
-                return None
+    if adx >= 18:
+        put_score += 1
 
+    if call_score >= put_score and call_score >= 5:
         return {
             "symbol": symbol,
-            "signal": direction,
-            "score": final_score,
+            "signal": "CALL",
+            "score": call_score,
+            "rsi": round(rsi, 1),
+            "adx": round(adx, 1),
+        }
+
+    if put_score > call_score and put_score >= 5:
+        return {
+            "symbol": symbol,
+            "signal": "PUT",
+            "score": put_score,
             "rsi": round(rsi, 1),
             "adx": round(adx, 1),
         }
