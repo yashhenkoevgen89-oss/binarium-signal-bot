@@ -404,10 +404,10 @@ def save_signal(signal_data):
     stats["month_signals"] += 1
 
     if signal_data["signal"] == "CALL":
-    stats["call_signals"] += 1
+        stats["call_signals"] += 1
 
     if signal_data["signal"] == "PUT":
-    stats["put_signals"] += 1 
+        stats["put_signals"] += 1 
         
 # =========================
 # AUTO SCANNER
