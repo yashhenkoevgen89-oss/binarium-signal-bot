@@ -283,11 +283,15 @@ def analyze_pair(symbol):
         return None
 
     last = df.iloc[-1]
+    prev = df.iloc[-2]
 
     try:
         ema20 = float(last["ema20"])
         ema50 = float(last["ema50"])
         ema200 = float(last["ema200"])
+
+        prev_ema20 = float(prev["ema20"])
+        prev_ema50 = float(prev["ema50"])
 
         rsi = float(last["rsi"])
 
@@ -297,6 +301,7 @@ def analyze_pair(symbol):
         adx = float(last["adx"])
 
         close = float(last["close"])
+        open_price = float(last["open"])
 
         bb_high = float(last["bb_high"])
         bb_low = float(last["bb_low"])
@@ -304,6 +309,10 @@ def analyze_pair(symbol):
         stoch = float(last["stoch"])
 
     except:
+        return None
+
+    # ADX ниже 20 = слабый рынок, сигнал запрещен
+    if adx < 20:
         return None
 
     # =====================
@@ -318,16 +327,19 @@ def analyze_pair(symbol):
     if ema50 > ema200:
         call_score += 1
 
+    if ema20 > prev_ema20:
+        call_score += 1
+
+    if ema50 > prev_ema50:
+        call_score += 1
+
     if macd > macd_signal:
         call_score += 2
 
     if 45 <= rsi <= 70:
         call_score += 1
 
-    if adx > 22:
-        call_score += 1
-
-    if adx > 28:
+    if close > open_price:
         call_score += 1
 
     if close < bb_high:
@@ -348,16 +360,19 @@ def analyze_pair(symbol):
     if ema50 < ema200:
         put_score += 1
 
+    if ema20 < prev_ema20:
+        put_score += 1
+
+    if ema50 < prev_ema50:
+        put_score += 1
+
     if macd < macd_signal:
         put_score += 2
 
     if 30 <= rsi <= 55:
         put_score += 1
 
-    if adx > 22:
-        put_score += 1
-
-    if adx > 28:
+    if close < open_price:
         put_score += 1
 
     if close > bb_low:
@@ -366,7 +381,7 @@ def analyze_pair(symbol):
     if stoch > 15:
         put_score += 1
 
-    if call_score >= put_score and call_score >= 4:
+    if call_score >= put_score and call_score >= 6:
 
         return {
             "symbol": symbol,
@@ -376,7 +391,7 @@ def analyze_pair(symbol):
             "adx": round(adx, 1)
         }
 
-    if put_score > call_score and put_score >= 4:
+    if put_score > call_score and put_score >= 6:
 
         return {
             "symbol": symbol,
