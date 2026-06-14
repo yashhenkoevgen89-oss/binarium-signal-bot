@@ -347,44 +347,48 @@ def analyze_pair(symbol):
 
     call_score = 0
     put_score = 0
+# ======================
+# CALL LOGIC
+# ======================
 
-    # =====================
-    # CALL LOGIC
-    # =====================
+call_score = 0
 
-    if green_count >= 3:
-        call_score += 2
+if green_count >= 2:
+    call_score += 2
 
-    if last_green:
-        call_score += 1
+if last_green:
+    call_score += 1
 
-    if higher_close:
-        call_score += 2
+if close > prev_close:
+    call_score += 1
 
-    if 42 <= rsi <= 72:
-        call_score += 1
+if rsi > 45:
+    call_score += 1
 
-    if adx >= 15:
-        call_score += 1
+if adx > 10:
+    call_score += 1
 
-    # =====================
-    # PUT LOGIC
-    # =====================
 
-    if red_count >= 3:
-        put_score += 2
+# ======================
+# PUT LOGIC
+# ======================
 
-    if last_red:
-        put_score += 1
+put_score = 0
 
-    if lower_close:
-        put_score += 2
+if red_count >= 2:
+    put_score += 2
 
-    if 28 <= rsi <= 58:
-        put_score += 1
+if last_red:
+    put_score += 1
 
-    if adx >= 15:
-        put_score += 1
+if close < prev_close:
+    put_score += 1
+
+if rsi < 55:
+    put_score += 1
+
+if adx > 10:
+    put_score += 1
 
     # =====================
     # DECISION
